@@ -19,12 +19,22 @@ transform:
   # enable_logging: false         # Optional: enable host function logging
 
 sink:
-  type: redis
+  # Option 1: Redis List sink (LPUSH + LTRIM)
+  # type: redis
+  # addr: localhost:6379
+  # # password: ""                  # Optional: Redis password
+  # # db: 0                         # Optional: Redis database number
+  # key: cdc:events
+  # max_len: 10000                  # Trim list to max length (0 = no trimming)
+
+  # Option 2: Redis Stream sink (XADD + XTRIM)
+  type: redis_stream
   addr: localhost:6379
-  # password: ""                  # Optional: Redis password
-  # db: 0                         # Optional: Redis database number
-  key: cdc:events
-  max_len: 10000                  # Trim list to max length (0 = no trimming)
+  # password: ""                    # Optional: Redis password
+  # db: 0                           # Optional: Redis database number
+  stream_key: cdc:events
+  max_len: 10000                    # Trim stream to max length (0 = no trimming)
+  # approximate_trim: false         # Optional: use ~MAXLEN for better performance
 
 # Logger configuration (optional)
 # If not specified, defaults to format: "text", level: "info"

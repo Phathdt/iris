@@ -243,8 +243,8 @@ func TestValidate_MissingSinkKey(t *testing.T) {
 		t.Fatal("Validate() expected error for missing sink key, got nil")
 	}
 
-	if err.Error() != "sink.key is required" {
-		t.Errorf("Validate() error = %v, want 'sink.key is required'", err)
+	if err.Error() != "sink.key is required for redis list sink" {
+		t.Errorf("Validate() error = %v, want 'sink.key is required for redis list sink'", err)
 	}
 }
 

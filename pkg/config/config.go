@@ -83,7 +83,7 @@ type TransformConfig struct {
 
 // SinkConfig holds the sink configuration
 type SinkConfig struct {
-	// Type is the sink type (currently only "redis")
+	// Type is the sink type ("redis" for list, "redis_stream" for stream)
 	Type string `yaml:"type"`
 
 	// Addr is the Redis server address (e.g., "localhost:6379")
@@ -95,11 +95,18 @@ type SinkConfig struct {
 	// DB is the Redis database number (default 0)
 	DB int `yaml:"db,omitempty"`
 
-	// Key is the Redis list key for CDC events
-	Key string `yaml:"key"`
+	// Key is the Redis list key for CDC events (used when type="redis")
+	Key string `yaml:"key,omitempty"`
 
-	// MaxLen trims the list to maximum length (0 = no trimming)
+	// StreamKey is the Redis stream key for CDC events (used when type="redis_stream")
+	StreamKey string `yaml:"stream_key,omitempty"`
+
+	// MaxLen trims the list/stream to maximum length (0 = no trimming)
 	MaxLen int `yaml:"max_len,omitempty"`
+
+	// ApproximateTrim uses ~MAXLEN for better performance (default: false)
+	// Only used when type="redis_stream"
+	ApproximateTrim bool `yaml:"approximate_trim,omitempty"`
 }
 
 // Load loads configuration from a YAML file
@@ -153,14 +160,25 @@ func (c *Config) Validate() error {
 	}
 
 	// Validate sink
-	if c.Sink.Type != "redis" {
+	switch c.Sink.Type {
+	case "redis":
+		// Redis List sink
+		if c.Sink.Addr == "" {
+			return fmt.Errorf("sink.addr is required")
+		}
+		if c.Sink.Key == "" {
+			return fmt.Errorf("sink.key is required for redis list sink")
+		}
+	case "redis_stream":
+		// Redis Stream sink
+		if c.Sink.Addr == "" {
+			return fmt.Errorf("sink.addr is required")
+		}
+		if c.Sink.StreamKey == "" {
+			return fmt.Errorf("sink.stream_key is required for redis_stream sink")
+		}
+	default:
 		return fmt.Errorf("unsupported sink type: %s", c.Sink.Type)
-	}
-	if c.Sink.Addr == "" {
-		return fmt.Errorf("sink.addr is required")
-	}
-	if c.Sink.Key == "" {
-		return fmt.Errorf("sink.key is required")
 	}
 
 	return nil

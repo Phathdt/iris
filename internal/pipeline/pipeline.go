@@ -63,13 +63,30 @@ func NewPipeline(cfg config.Config, log logger.Logger) (*Pipeline, error) {
 	enc := encoder.NewJSONEncoder()
 
 	// 5. Create sink
-	snk, err := redisSink.NewRedisSink(redisSink.Config{
-		Addr:     cfg.Sink.Addr,
-		Password: cfg.Sink.Password,
-		DB:       cfg.Sink.DB,
-		Key:      cfg.Sink.Key,
-		MaxLen:   cfg.Sink.MaxLen,
-	})
+	var snk cdc.Sink
+	switch cfg.Sink.Type {
+	case "redis":
+		// Redis List sink
+		snk, err = redisSink.NewRedisSink(redisSink.Config{
+			Addr:     cfg.Sink.Addr,
+			Password: cfg.Sink.Password,
+			DB:       cfg.Sink.DB,
+			Key:      cfg.Sink.Key,
+			MaxLen:   cfg.Sink.MaxLen,
+		})
+	case "redis_stream":
+		// Redis Stream sink
+		snk, err = redisSink.NewRedisStreamSink(redisSink.StreamConfig{
+			Addr:            cfg.Sink.Addr,
+			Password:        cfg.Sink.Password,
+			DB:              cfg.Sink.DB,
+			StreamKey:       cfg.Sink.StreamKey,
+			MaxLen:          cfg.Sink.MaxLen,
+			ApproximateTrim: cfg.Sink.ApproximateTrim,
+		})
+	default:
+		return nil, fmt.Errorf("unsupported sink type: %s", cfg.Sink.Type)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("create sink: %w", err)
 	}

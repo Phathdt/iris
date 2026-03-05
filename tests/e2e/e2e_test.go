@@ -58,7 +58,7 @@ func connectToRedis(t *testing.T, addr string) *redis.Client {
 	return client
 }
 
-// cleanupRedis clears the test key
+// cleanupRedis clears the test key (works for both list and stream)
 func cleanupRedis(t *testing.T, client *redis.Client, key string) {
 	t.Helper()
 	client.Del(context.Background(), key)
@@ -479,4 +479,177 @@ func eventuallyHelper(t *testing.T, condition func() bool, timeout, tick time.Du
 			}
 		}
 	}
+}
+
+// TestE2E_PostgresToRedisStream_Basic tests CDC pipeline with Redis Stream sink
+func TestE2E_PostgresToRedisStream_Basic(t *testing.T) {
+	skipIfNoE2E(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	dsn := getPostgresDSN()
+	redisAddr := getRedisAddr()
+	testStreamKey := "e2e:cdc:stream:basic"
+
+	// 1. Create pipeline config with redis_stream sink
+	cfg := config.Config{
+		Source: config.SourceConfig{
+			Type:     "postgres",
+			DSN:      dsn,
+			Tables:   []string{"users", "orders"},
+			SlotName: "iris_e2e_stream_slot",
+		},
+		Transform: nil, // No transform
+		Sink: config.SinkConfig{
+			Type:      "redis_stream",
+			Addr:      redisAddr,
+			StreamKey: testStreamKey,
+		},
+	}
+
+	// 2. Create pipeline
+	p, err := pipeline.NewPipeline(cfg, logger.New("plain", "info"))
+	if err != nil {
+		t.Fatalf("failed to create pipeline: %v", err)
+	}
+	defer p.Close()
+
+	// 3. Start pipeline
+	go func() {
+		if err := p.Run(ctx); err != nil && err != context.Canceled {
+			t.Logf("pipeline error: %v", err)
+		}
+	}()
+
+	// Wait for replication to start
+	time.Sleep(2 * time.Second)
+
+	// 4. Insert test data
+	db := connectToPostgres(t, dsn)
+	defer db.Close()
+
+	testName := fmt.Sprintf("e2e_stream_test_%d", time.Now().Unix())
+	_, err = db.ExecContext(ctx,
+		"INSERT INTO users (name, email) VALUES ($1, $2)",
+		testName, "e2e-stream@test.com")
+	if err != nil {
+		t.Fatalf("failed to insert test data: %v", err)
+	}
+
+	// 5. Wait for event in Redis Stream
+	redisClient := connectToRedis(t, redisAddr)
+	defer cleanupRedis(t, redisClient, testStreamKey)
+
+	var eventData map[string]any
+	if !eventuallyHelper(t, func() bool {
+		result, err := redisClient.XRange(ctx, testStreamKey, "-", "+").Result()
+		if err != nil || len(result) == 0 {
+			return false
+		}
+		// Extract data field from stream entry
+		entry := result[0]
+		dataField, ok := entry.Values["data"]
+		if !ok {
+			return false
+		}
+		if err := json.Unmarshal([]byte(dataField.(string)), &eventData); err != nil {
+			return false
+		}
+		return true
+	}, 15*time.Second, 500*time.Millisecond, "timeout waiting for CDC stream event") {
+		t.Fatal("timeout waiting for CDC stream event")
+	}
+
+	// 6. Verify event content
+	if eventData["table"] != "users" {
+		t.Errorf("expected table=users, got %v", eventData["table"])
+	}
+	if eventData["op"] != "create" {
+		t.Errorf("expected op=create, got %v", eventData["op"])
+	}
+	after, ok := eventData["after"].(map[string]any)
+	if !ok {
+		t.Fatal("expected after to be a map")
+	}
+	if after["name"] != testName {
+		t.Errorf("expected after.name=%s, got %v", testName, after["name"])
+	}
+
+	t.Log("E2E Redis Stream test passed: PostgreSQL -> Redis Stream CDC pipeline working")
+}
+
+// TestE2E_RedisStream_MaxLen tests stream trimming with MaxLen
+func TestE2E_RedisStream_MaxLen(t *testing.T) {
+	skipIfNoE2E(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	dsn := getPostgresDSN()
+	redisAddr := getRedisAddr()
+	testStreamKey := "e2e:cdc:stream:maxlen"
+	maxLen := 3
+
+	cfg := config.Config{
+		Source: config.SourceConfig{
+			Type:     "postgres",
+			DSN:      dsn,
+			Tables:   []string{"users"},
+			SlotName: "iris_e2e_stream_maxlen_slot",
+		},
+		Sink: config.SinkConfig{
+			Type:      "redis_stream",
+			Addr:      redisAddr,
+			StreamKey: testStreamKey,
+			MaxLen:    maxLen,
+		},
+	}
+
+	p, err := pipeline.NewPipeline(cfg, logger.New("plain", "info"))
+	if err != nil {
+		t.Fatalf("failed to create pipeline: %v", err)
+	}
+	defer p.Close()
+
+	go func() {
+		if err := p.Run(ctx); err != nil && err != context.Canceled {
+			t.Logf("pipeline error: %v", err)
+		}
+	}()
+
+	time.Sleep(2 * time.Second)
+
+	db := connectToPostgres(t, dsn)
+	defer db.Close()
+
+	// Insert multiple records to trigger trimming
+	redisClient := connectToRedis(t, redisAddr)
+	defer cleanupRedis(t, redisClient, testStreamKey)
+
+	for i := 0; i < 5; i++ {
+		testEmail := fmt.Sprintf("maxlen_%d_%d@test.com", time.Now().Unix(), i)
+		_, err = db.ExecContext(ctx,
+			"INSERT INTO users (name, email) VALUES ($1, $2)",
+			fmt.Sprintf("User %d", i), testEmail)
+		if err != nil {
+			t.Fatalf("failed to insert user %d: %v", i, err)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// Wait for all events and verify trimming
+	if !eventuallyHelper(t, func() bool {
+		result, err := redisClient.XRange(ctx, testStreamKey, "-", "+").Result()
+		if err != nil {
+			return false
+		}
+		// Stream should be trimmed to maxLen
+		return len(result) <= maxLen
+	}, 15*time.Second, 500*time.Millisecond, "timeout waiting for stream trim") {
+		t.Fatalf("stream not trimmed to maxLen=%d", maxLen)
+	}
+
+	result, _ := redisClient.XRange(ctx, testStreamKey, "-", "+").Result()
+	t.Logf("E2E MaxLen test passed: stream trimmed to %d entries (maxLen=%d)", len(result), maxLen)
 }
