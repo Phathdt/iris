@@ -7,11 +7,28 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Version info set at build time via ldflags
+var (
+	version   = "dev"
+	gitCommit = "none"
+	buildDate = "unknown"
+)
+
+// Version returns the current version
+func Version() string {
+	return version
+}
+
+// PrintVersion prints version information
+func PrintVersion() {
+	fmt.Printf("iris version %s (commit: %s, built: %s)\n", version, gitCommit, buildDate)
+}
+
 // Config holds the entire pipeline configuration
 type Config struct {
-	Source    SourceConfig    `yaml:"source"`
+	Source    SourceConfig     `yaml:"source"`
 	Transform *TransformConfig `yaml:"transform,omitempty"`
-	Sink      SinkConfig      `yaml:"sink"`
+	Sink      SinkConfig       `yaml:"sink"`
 }
 
 // SourceConfig holds the source database configuration

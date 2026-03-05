@@ -12,7 +12,7 @@ import (
 
 // MockSource is a test implementation of cdc.Source
 type MockSource struct {
-	events chan cdc.RawEvent
+	events  chan cdc.RawEvent
 	closeFn func() error
 }
 
@@ -681,12 +681,12 @@ func TestPipeline_DecoderNilEvent(t *testing.T) {
 // testLogger is a minimal slog.Logger implementation for testing
 type testLogger struct{}
 
-func (l *testLogger) Info(msg string, args ...any)    {}
-func (l *testLogger) Debug(msg string, args ...any)   {}
-func (l *testLogger) Warn(msg string, args ...any)    {}
-func (l *testLogger) Error(msg string, args ...any)   {}
-func (l *testLogger) Log(args ...any)                 {}
-func (l *testLogger) LogAttrs(msg string, args ...any) {}
+func (l *testLogger) Info(msg string, args ...any)      {}
+func (l *testLogger) Debug(msg string, args ...any)     {}
+func (l *testLogger) Warn(msg string, args ...any)      {}
+func (l *testLogger) Error(msg string, args ...any)     {}
+func (l *testLogger) Log(args ...any)                   {}
+func (l *testLogger) LogAttrs(msg string, args ...any)  {}
 func (l *testLogger) Enabled(context.Context, any) bool { return true }
-func (l *testLogger) WithAttrs(attrs []any) any        { return l }
-func (l *testLogger) WithGroup(name string) any        { return l }
+func (l *testLogger) WithAttrs(attrs []any) any         { return l }
+func (l *testLogger) WithGroup(name string) any         { return l }

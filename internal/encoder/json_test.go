@@ -135,7 +135,7 @@ func TestJSONEncoder_Encode(t *testing.T) {
 			},
 		},
 		{
-			name: "empty event",
+			name:  "empty event",
 			event: &cdc.Event{},
 			validate: func(t *testing.T, data []byte) {
 				var result map[string]any

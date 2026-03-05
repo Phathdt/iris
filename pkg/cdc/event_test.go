@@ -134,7 +134,7 @@ func TestEvent_MarshalJSON(t *testing.T) {
 			},
 		},
 		{
-			name: "empty event",
+			name:  "empty event",
 			event: &Event{},
 			validate: func(t *testing.T, data []byte) {
 				var result map[string]any

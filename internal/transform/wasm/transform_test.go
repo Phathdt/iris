@@ -112,7 +112,6 @@ func TestWasmTransform_Close(t *testing.T) {
 	runtime, compiled, err := compileWASM(ctx, Config{
 		Path: "./testdata/dummy.wasm",
 	})
-
 	// Skip if no test WASM file
 	if err != nil {
 		t.Skipf("no test WASM module available: %v", err)

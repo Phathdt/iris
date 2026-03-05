@@ -435,7 +435,7 @@ func TestE2E_MultipleTables(t *testing.T) {
 	defer cleanupRedis(t, redisClient, testKey)
 
 	// Wait for both events
-	var tablesSeen = make(map[string]bool)
+	tablesSeen := make(map[string]bool)
 	if !eventuallyHelper(t, func() bool {
 		result, err := redisClient.LRange(ctx, testKey, 0, -1).Result()
 		if err != nil || len(result) == 0 {

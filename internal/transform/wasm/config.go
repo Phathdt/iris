@@ -18,9 +18,9 @@ type Config struct {
 // DefaultConfig returns a Config with sensible defaults.
 func DefaultConfig() Config {
 	return Config{
-		FunctionName:    "handle",
+		FunctionName:      "handle",
 		AllocFunctionName: "alloc",
-		EnableLogging:   false,
+		EnableLogging:     false,
 	}
 }
 

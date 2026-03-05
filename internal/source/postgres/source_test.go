@@ -37,8 +37,8 @@ func TestPostgresSource_NewSource(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "empty config",
-			cfg:  Config{},
+			name:    "empty config",
+			cfg:     Config{},
 			wantErr: true,
 		},
 	}

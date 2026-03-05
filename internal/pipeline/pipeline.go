@@ -12,8 +12,8 @@ import (
 	"iris/pkg/cdc"
 	"iris/pkg/config"
 
-	nopTransform "iris/internal/transform/nop"
 	redisSink "iris/internal/sink/redis"
+	nopTransform "iris/internal/transform/nop"
 )
 
 // Pipeline wires all CDC components together

@@ -1,4 +1,4 @@
-.PHONY: test test-unit test-integration test-e2e test-coverage clean build
+.PHONY: test test-unit test-integration test-e2e test-coverage format fmt lint build run clean help version
 
 # Go parameters
 GOCMD=go
@@ -7,6 +7,15 @@ GOTEST=$(GOCMD) test
 GOGET=$(GOCMD) get
 GOMOD=$(GOCMD) mod
 GOFMT=$(GOCMD) fmt
+
+# Binary name
+BINARY_NAME=iris
+
+# Version info (set via ldflags)
+VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+GIT_COMMIT=$(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+BUILD_DATE=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+LDFLAGS=-s -w -X 'iris/pkg/config.version=$(VERSION)' -X 'iris/pkg/config.gitCommit=$(GIT_COMMIT)' -X 'iris/pkg/config.buildDate=$(BUILD_DATE)'
 
 # Test flags
 TEST_FLAGS=-v
@@ -19,9 +28,70 @@ COVERAGE_DIR=coverage
 COVERAGE_FILE=$(COVERAGE_DIR)/coverage.out
 COVERAGE_HTML=$(COVERAGE_DIR)/coverage.html
 
-# Build
+# Build with version info
 build:
-	$(GOBUILD) -o bin/iris ./cmd/iris
+	$(GOBUILD) -ldflags "$(LDFLAGS)" -o bin/$(BINARY_NAME) ./cmd/iris
+
+# Build without debug info (smaller binary)
+build-release:
+	$(GOBUILD) -ldflags "$(LDFLAGS) -s -w" -o bin/$(BINARY_NAME) ./cmd/iris
+
+# Run the application
+run:
+	$(GOBUILD) -o bin/$(BINARY_NAME) ./cmd/iris && ./bin/$(BINARY_NAME)
+
+# Run with config
+run-config:
+	./bin/$(BINARY_NAME) --config $(CONFIG)
+
+# Format code (fix formatting)
+format:
+	@echo "🎨 Formatting all Go files..."
+	@gofmt -w .
+	@echo "📦 Organizing imports..."
+	@goimports -w .
+	@echo "📏 Formatting line lengths..."
+	@golines -w -m 120 .
+	@echo "✨ Applying gofumpt formatting..."
+	@gofumpt -extra -w .
+	@echo "✅ Go files formatted successfully!"
+
+
+# Check formatting (don't fix, just report)
+fmt-check:
+	@files=$$(gofmt -l .); \
+	if [ -n "$$files" ]; then \
+		echo "Unformatted files found:"; \
+		echo "$$files"; \
+		exit 1; \
+	fi
+	@echo "All files properly formatted"
+
+# Download dependencies
+deps:
+	$(GOMOD) download
+	$(GOMOD) verify
+
+# Tidy go.mod
+tidy:
+	$(GOMOD) tidy
+
+# Lint (basic)
+lint:
+	@echo "Running go vet..."
+	go vet ./...
+	@echo "Running go fmt..."
+	@$(GOFMT) -d ./...
+	@echo "Lint complete"
+
+# Clean build artifacts
+clean:
+	rm -rf bin/
+	rm -rf $(COVERAGE_DIR)
+
+# Create coverage directory
+$(COVERAGE_DIR):
+	mkdir -p $(COVERAGE_DIR)
 
 # Run all tests (unit + integration)
 test:
@@ -66,49 +136,46 @@ test-coverage-pkg: $(COVERAGE_DIR)
 clean-coverage:
 	rm -rf $(COVERAGE_DIR)
 
-# Format code
-fmt:
-	$(GOFMT) ./...
-
-# Download dependencies
-deps:
-	$(GOMOD) download
-	$(GOMOD) verify
-
-# Tidy go.mod
-tidy:
-	$(GOMOD) tidy
-
-# Lint (basic)
-lint:
-	go vet ./...
-	go fmt ./...
-
-# Clean build artifacts
-clean:
-	rm -rf bin/
-	rm -rf $(COVERAGE_DIR)
-
-# Create coverage directory
-$(COVERAGE_DIR):
-	mkdir -p $(COVERAGE_DIR)
+# Show version
+version:
+	@echo "Version: $(VERSION)"
+	@echo "Git Commit: $(GIT_COMMIT)"
+	@echo "Build Date: $(BUILD_DATE)"
 
 # Help
 help:
-	@echo "Available targets:"
+	@echo "Iris CDC Pipeline - Makefile Targets"
+	@echo "===================================="
+	@echo ""
+	@echo "Build:"
+	@echo "  build             - Build the binary with version info"
+	@echo "  build-release     - Build optimized binary (smaller)"
+	@echo "  run               - Build and run the application"
+	@echo "  run-config        - Run with config (CONFIG=path)"
+	@echo ""
+	@echo "Test:"
 	@echo "  test              - Run all tests"
 	@echo "  test-unit         - Run unit tests (skip integration)"
 	@echo "  test-integration  - Run integration tests"
-	@echo "  test-e2e          - Run E2E tests (set E2E_TEST=1)"
+	@echo "  test-e2e          - Run E2E tests"
 	@echo "  test-e2e-docker   - Run E2E tests with Docker Compose"
 	@echo "  test-coverage     - Run tests with coverage report"
 	@echo "  test-race         - Run tests with race detector"
 	@echo "  test-bench        - Run benchmarks"
-	@echo "  build             - Build the binary"
-	@echo "  fmt               - Format code"
+	@echo ""
+	@echo "Code Quality:"
+	@echo "  fmt               - Format code (fix formatting)"
+	@echo "  fmt-check         - Check formatting (report only)"
+	@echo "  lint              - Run linter (vet, fmt)"
+	@echo ""
+	@echo "Dependencies:"
 	@echo "  deps              - Download dependencies"
 	@echo "  tidy              - Tidy go.mod"
-	@echo "  lint              - Run linter (vet, fmt)"
+	@echo ""
+	@echo "Clean:"
 	@echo "  clean             - Clean build artifacts"
 	@echo "  clean-coverage    - Remove coverage files"
+	@echo ""
+	@echo "Other:"
+	@echo "  version           - Show version info"
 	@echo "  help              - Show this help"

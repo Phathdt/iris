@@ -55,7 +55,7 @@ func WriteToMemory(mod api.Module, ptr uint32, data []byte) error {
 }
 
 // ReadFromMemory reads data from WASM memory at the given pointer.
-func ReadFromMemory(mod api.Module, ptr uint32, size uint32) ([]byte, error) {
+func ReadFromMemory(mod api.Module, ptr, size uint32) ([]byte, error) {
 	mem := mod.Memory()
 	if mem == nil {
 		return nil, errors.New("module memory not found")
@@ -75,10 +75,10 @@ func ReadFromMemory(mod api.Module, ptr uint32, size uint32) ([]byte, error) {
 // WASMResult is the expected output structure from a WASM transform function.
 // Layout: [ptr:4bytes][len:4bytes][errPtr:4bytes][errLen:4bytes]
 type WASMResult struct {
-	DataPtr  uint32
-	DataLen  uint32
-	ErrPtr   uint32
-	ErrLen   uint32
+	DataPtr uint32
+	DataLen uint32
+	ErrPtr  uint32
+	ErrLen  uint32
 }
 
 // ParseResult reads the result structure from WASM memory.

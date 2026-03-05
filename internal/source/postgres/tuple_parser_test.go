@@ -30,8 +30,8 @@ func TestParseTuple(t *testing.T) {
 				Namespace:    "public",
 				RelationName: "users",
 				Columns: []*pglogrepl.RelationMessageColumn{
-					{Name: "id", DataType: 23},    // int4
-					{Name: "name", DataType: 25},  // text
+					{Name: "id", DataType: 23},      // int4
+					{Name: "name", DataType: 25},    // text
 					{Name: "email", DataType: 1043}, // varchar
 				},
 			},
@@ -788,7 +788,7 @@ func TestConvertValue_Bytea(t *testing.T) {
 // TestConvertValue_NULL tests NULL handling for all types
 func TestConvertValue_NULL(t *testing.T) {
 	types := []struct {
-		name  string
+		name    string
 		typeOID uint32
 	}{
 		{"int2", 21},

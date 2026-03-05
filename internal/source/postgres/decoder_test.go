@@ -46,8 +46,8 @@ func TestPostgresDecoder_RelationMessage(t *testing.T) {
 		Namespace:    "public",
 		RelationName: "users",
 		Columns: []*pglogrepl.RelationMessageColumn{
-			{Name: "id", DataType: 23},    // int4 OID
-			{Name: "name", DataType: 25},  // text OID
+			{Name: "id", DataType: 23},   // int4 OID
+			{Name: "name", DataType: 25}, // text OID
 		},
 	}
 
@@ -73,7 +73,7 @@ func TestPostgresDecoder_BeginMessage(t *testing.T) {
 	dec := NewDecoder()
 
 	begin := &pglogrepl.BeginMessage{
-		FinalLSN: pglogrepl.LSN(100),
+		FinalLSN:   pglogrepl.LSN(100),
 		CommitTime: time.Now(),
 	}
 
@@ -126,8 +126,8 @@ func TestPostgresDecoder_InsertMessage(t *testing.T) {
 		Namespace:    "public",
 		RelationName: "users",
 		Columns: []*pglogrepl.RelationMessageColumn{
-			{Name: "id", DataType: 23},    // int4 OID
-			{Name: "name", DataType: 25},  // text OID
+			{Name: "id", DataType: 23},   // int4 OID
+			{Name: "name", DataType: 25}, // text OID
 		},
 	}
 	dec.relations[100] = relation
@@ -188,8 +188,8 @@ func TestPostgresDecoder_UpdateMessage(t *testing.T) {
 		Namespace:    "public",
 		RelationName: "users",
 		Columns: []*pglogrepl.RelationMessageColumn{
-			{Name: "id", DataType: 23},    // int4 OID
-			{Name: "name", DataType: 25},  // text OID
+			{Name: "id", DataType: 23},   // int4 OID
+			{Name: "name", DataType: 25}, // text OID
 		},
 	}
 	dec.relations[200] = relation
@@ -323,9 +323,9 @@ func TestPostgresDecoder_TruncateMessage(t *testing.T) {
 
 func TestGetTableName(t *testing.T) {
 	tests := []struct {
-		name       string
-		relation   *pglogrepl.RelationMessage
-		want       string
+		name     string
+		relation *pglogrepl.RelationMessage
+		want     string
 	}{
 		{
 			name: "public schema",
