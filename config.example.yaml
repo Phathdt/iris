@@ -1,0 +1,27 @@
+# Iris CDC Pipeline Configuration
+# PostgreSQL to Redis Change Data Capture
+
+source:
+  type: postgres
+  dsn: postgres://user:password@localhost:5432/mydb
+  tables:
+    - users
+    - orders
+  slot_name: iris_slot
+  # start_lsn: ""  # Optional: start from specific WAL position
+
+transform:
+  enabled: false
+  type: wasm
+  path: ./transforms/filter.wasm
+  # function_name: handle         # Optional: default is "handle"
+  # alloc_function_name: alloc    # Optional: default is "alloc"
+  # enable_logging: false         # Optional: enable host function logging
+
+sink:
+  type: redis
+  addr: localhost:6379
+  # password: ""                  # Optional: Redis password
+  # db: 0                         # Optional: Redis database number
+  key: cdc:events
+  max_len: 10000                  # Trim list to max length (0 = no trimming)

@@ -1,0 +1,27 @@
+# Plans and sessions
+plans
+.claude_sessions/
+
+# Coverage
+coverage.out
+coverage/
+
+# Build
+bin/
+
+# Config
+config.yaml
+*.local.yaml
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Transforms
+transforms/*.wasm

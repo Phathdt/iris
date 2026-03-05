@@ -1,0 +1,19 @@
+FROM golang:1.26-alpine
+
+WORKDIR /app
+
+# Install dependencies
+RUN apk add --no-cache git
+
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Set working directory for tests
+WORKDIR /app
+
+# Default command is to run tests
+CMD ["go", "test", "./tests/e2e/...", "-v", "-count=1"]
