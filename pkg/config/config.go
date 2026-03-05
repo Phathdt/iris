@@ -29,6 +29,16 @@ type Config struct {
 	Source    SourceConfig     `yaml:"source"`
 	Transform *TransformConfig `yaml:"transform,omitempty"`
 	Sink      SinkConfig       `yaml:"sink"`
+	Logger    LoggerConfig     `yaml:"logger,omitempty"`
+}
+
+// LoggerConfig holds the logger configuration
+type LoggerConfig struct {
+	// Level is the logging level (debug, info, warn, error)
+	Level string `yaml:"level"`
+
+	// Format is the output format (json, text, plain)
+	Format string `yaml:"format"`
 }
 
 // SourceConfig holds the source database configuration
@@ -102,6 +112,14 @@ func Load(path string) (*Config, error) {
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parse config file: %w", err)
+	}
+
+	// Set default logger config if not specified
+	if cfg.Logger.Level == "" {
+		cfg.Logger.Level = "info"
+	}
+	if cfg.Logger.Format == "" {
+		cfg.Logger.Format = "text"
 	}
 
 	if err := cfg.Validate(); err != nil {

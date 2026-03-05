@@ -3,11 +3,11 @@ package pipeline
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"testing"
 
 	"iris/pkg/cdc"
 	"iris/pkg/config"
+	"iris/pkg/logger"
 )
 
 // MockSource is a test implementation of cdc.Source
@@ -124,7 +124,7 @@ func TestNewPipeline_ValidConfig(t *testing.T) {
 
 	// Pipeline creation will fail without actual DB connections
 	// This is expected behavior - the test verifies error handling
-	_, err := NewPipeline(cfg)
+	_, err := NewPipeline(cfg, logger.New("plain", "info"))
 	if err == nil {
 		t.Skip("Skipping - requires actual Postgres/Redis connections")
 	}
@@ -170,7 +170,7 @@ func TestPipeline_EventFlow_Success(t *testing.T) {
 		transform: transform,
 		encoder:   encoder,
 		sink:      sink,
-		logger:    slog.Default(),
+		logger:    logger.New("plain", "info"),
 	}
 
 	err := pipeline.Run(context.Background())
@@ -220,7 +220,7 @@ func TestPipeline_TransformDrop(t *testing.T) {
 		transform: transform,
 		encoder:   encoder,
 		sink:      sink,
-		logger:    slog.Default(),
+		logger:    logger.New("plain", "info"),
 	}
 
 	err := pipeline.Run(context.Background())
@@ -267,7 +267,7 @@ func TestPipeline_DecoderError(t *testing.T) {
 		transform: transform,
 		encoder:   encoder,
 		sink:      sink,
-		logger:    slog.Default(),
+		logger:    logger.New("plain", "info"),
 	}
 
 	err := pipeline.Run(context.Background())
@@ -318,7 +318,7 @@ func TestPipeline_TransformError(t *testing.T) {
 		transform: transform,
 		encoder:   encoder,
 		sink:      sink,
-		logger:    slog.Default(),
+		logger:    logger.New("plain", "info"),
 	}
 
 	err := pipeline.Run(context.Background())
@@ -359,7 +359,7 @@ func TestPipeline_EncoderError(t *testing.T) {
 		transform: transform,
 		encoder:   encoder,
 		sink:      sink,
-		logger:    slog.Default(),
+		logger:    logger.New("plain", "info"),
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -420,7 +420,7 @@ func TestPipeline_SinkError(t *testing.T) {
 		transform: transform,
 		encoder:   encoder,
 		sink:      sink,
-		logger:    slog.Default(),
+		logger:    logger.New("plain", "info"),
 	}
 
 	err := pipeline.Run(context.Background())
@@ -466,7 +466,7 @@ func TestPipeline_Close_Success(t *testing.T) {
 		transform: transform,
 		encoder:   &MockEncoder{},
 		sink:      sink,
-		logger:    slog.Default(),
+		logger:    logger.New("plain", "info"),
 	}
 
 	err := pipeline.Close()
@@ -509,7 +509,7 @@ func TestPipeline_Close_WithErrors(t *testing.T) {
 		transform: transform,
 		encoder:   &MockEncoder{},
 		sink:      sink,
-		logger:    slog.Default(),
+		logger:    logger.New("plain", "info"),
 	}
 
 	err := pipeline.Close()
@@ -542,7 +542,7 @@ func TestPipeline_ContextCancellation(t *testing.T) {
 		transform: transform,
 		encoder:   encoder,
 		sink:      sink,
-		logger:    slog.Default(),
+		logger:    logger.New("plain", "info"),
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -574,7 +574,7 @@ func TestPipeline_SourceChannelClosed(t *testing.T) {
 		transform: transform,
 		encoder:   encoder,
 		sink:      sink,
-		logger:    slog.Default(),
+		logger:    logger.New("plain", "info"),
 	}
 
 	ctx := context.Background()
@@ -617,7 +617,7 @@ func TestPipeline_SourceErrorEvent(t *testing.T) {
 		transform: transform,
 		encoder:   encoder,
 		sink:      sink,
-		logger:    slog.Default(),
+		logger:    logger.New("plain", "info"),
 	}
 
 	err := pipeline.Run(context.Background())
@@ -664,7 +664,7 @@ func TestPipeline_DecoderNilEvent(t *testing.T) {
 		transform: transform,
 		encoder:   encoder,
 		sink:      sink,
-		logger:    slog.Default(),
+		logger:    logger.New("plain", "info"),
 	}
 
 	err := pipeline.Run(context.Background())
@@ -678,15 +678,19 @@ func TestPipeline_DecoderNilEvent(t *testing.T) {
 	}
 }
 
-// testLogger is a minimal slog.Logger implementation for testing
+// testLogger is a no-op logger for tests using the logger.Logger interface
 type testLogger struct{}
 
-func (l *testLogger) Info(msg string, args ...any)      {}
-func (l *testLogger) Debug(msg string, args ...any)     {}
-func (l *testLogger) Warn(msg string, args ...any)      {}
-func (l *testLogger) Error(msg string, args ...any)     {}
-func (l *testLogger) Log(args ...any)                   {}
-func (l *testLogger) LogAttrs(msg string, args ...any)  {}
-func (l *testLogger) Enabled(context.Context, any) bool { return true }
-func (l *testLogger) WithAttrs(attrs []any) any         { return l }
-func (l *testLogger) WithGroup(name string) any         { return l }
+func (l *testLogger) Debug(msg string, args ...any)                                {}
+func (l *testLogger) Info(msg string, args ...any)                                 {}
+func (l *testLogger) Warn(msg string, args ...any)                                 {}
+func (l *testLogger) Error(msg string, args ...any)                                {}
+func (l *testLogger) Fatal(msg string, args ...any)                                {}
+func (l *testLogger) With(args ...any) logger.Logger                               { return l }
+func (l *testLogger) WithGroup(name string) logger.Logger                          { return l }
+func (l *testLogger) DebugContext(ctx context.Context, msg string, args ...any)    {}
+func (l *testLogger) InfoContext(ctx context.Context, msg string, args ...any)     {}
+func (l *testLogger) WarnContext(ctx context.Context, msg string, args ...any)     {}
+func (l *testLogger) ErrorContext(ctx context.Context, msg string, args ...any)    {}
+
+var _ logger.Logger = (*testLogger)(nil)

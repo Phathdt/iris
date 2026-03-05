@@ -25,3 +25,9 @@ sink:
   # db: 0                         # Optional: Redis database number
   key: cdc:events
   max_len: 10000                  # Trim list to max length (0 = no trimming)
+
+# Logger configuration (optional)
+# If not specified, defaults to format: "text", level: "info"
+logger:
+  format: text    # Options: "text" (colored), "json", "plain" (no colors)
+  level: info     # Options: "debug", "info", "warn", "error"

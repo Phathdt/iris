@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 
 	"iris/internal/encoder"
 	postgresSource "iris/internal/source/postgres"
 	wasmTransform "iris/internal/transform/wasm"
 	"iris/pkg/cdc"
 	"iris/pkg/config"
+	"iris/pkg/logger"
 
 	redisSink "iris/internal/sink/redis"
 	nopTransform "iris/internal/transform/nop"
@@ -23,12 +23,13 @@ type Pipeline struct {
 	transform cdc.Transform
 	encoder   cdc.Encoder
 	sink      cdc.Sink
-	logger    *slog.Logger
+	logger    logger.Logger
 }
 
 // NewPipeline creates a new pipeline with all components wired together
-func NewPipeline(cfg config.Config) (*Pipeline, error) {
-	logger := slog.Default()
+func NewPipeline(cfg config.Config, log logger.Logger) (*Pipeline, error) {
+	// Create logger with pipeline group
+	logger := log.WithGroup("pipeline")
 
 	// 1. Create source
 	src, err := postgresSource.NewSource(postgresSource.Config{

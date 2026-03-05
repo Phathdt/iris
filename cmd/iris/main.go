@@ -3,13 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"iris/internal/pipeline"
 	"iris/pkg/config"
+	"iris/pkg/logger"
 
 	"github.com/urfave/cli/v2"
 )
@@ -32,7 +32,7 @@ func main() {
 			},
 			&cli.BoolFlag{
 				Name:  "verbose",
-				Usage: "Enable verbose logging",
+				Usage: "Enable verbose logging (overrides config)",
 			},
 		},
 		Commands: []*cli.Command{
@@ -57,28 +57,29 @@ func runPipeline(c *cli.Context) error {
 	configPath := c.String("config")
 	verbose := c.Bool("verbose")
 
-	// Create logger
-	logLevel := slog.LevelInfo
-	if verbose {
-		logLevel = slog.LevelDebug
-	}
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: logLevel,
-	}))
-	slog.SetDefault(logger)
-
-	// Load configuration
-	logger.Info("loading configuration", "path", configPath)
+	// Load configuration first
+	tmpLog := logger.New("text", "info") // Temporary logger for config load
+	tmpLog.Info("loading configuration", "path", configPath)
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	logger.Info("configuration loaded successfully")
+	// Create logger with config (verbose flag overrides config level)
+	logLevel := cfg.Logger.Level
+	if verbose {
+		logLevel = "debug"
+	}
+	log := logger.New(cfg.Logger.Format, logLevel)
+
+	log.Info("configuration loaded successfully",
+		"level", cfg.Logger.Level,
+		"format", cfg.Logger.Format,
+	)
 
 	// Create pipeline
-	logger.Info("creating pipeline")
-	pl, err := pipeline.NewPipeline(*cfg)
+	log.Info("creating pipeline")
+	pl, err := pipeline.NewPipeline(*cfg, log)
 	if err != nil {
 		return fmt.Errorf("create pipeline: %w", err)
 	}
@@ -94,22 +95,22 @@ func runPipeline(c *cli.Context) error {
 	// Handle shutdown signals in background
 	go func() {
 		sig := <-sigCh
-		logger.Info("received shutdown signal", "signal", sig)
+		log.Info("received shutdown signal", "signal", sig)
 		cancel()
 	}()
 
 	// Run pipeline
-	logger.Info("starting iris CDC pipeline")
+	log.Info("starting iris CDC pipeline")
 	if err := pl.Run(ctx); err != nil && err != context.Canceled {
 		return fmt.Errorf("run pipeline: %w", err)
 	}
 
 	// Graceful shutdown
-	logger.Info("shutting down pipeline")
+	log.Info("shutting down pipeline")
 	if err := pl.Close(); err != nil {
 		return fmt.Errorf("close pipeline: %w", err)
 	}
 
-	logger.Info("iris shutdown complete")
+	log.Info("iris shutdown complete")
 	return nil
 }
