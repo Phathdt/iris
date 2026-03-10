@@ -69,30 +69,18 @@ func (m *MockTransform) Close() error {
 	return nil
 }
 
-// MockEncoder is a test implementation of cdc.Encoder
-type MockEncoder struct {
-	encodeFn func(*cdc.Event) ([]byte, error)
-}
-
-func (m *MockEncoder) Encode(event *cdc.Event) ([]byte, error) {
-	if m.encodeFn != nil {
-		return m.encodeFn(event)
-	}
-	return []byte(`{"source":"postgres","table":"users","op":"create"}`), nil
-}
-
 // MockSink is a test implementation of cdc.Sink
 type MockSink struct {
-	writeFn func(context.Context, []byte) error
+	writeFn func(context.Context, *cdc.Event) error
 	closeFn func() error
-	writes  [][]byte
+	writes  []*cdc.Event
 }
 
-func (m *MockSink) Write(ctx context.Context, data []byte) error {
+func (m *MockSink) Write(ctx context.Context, event *cdc.Event) error {
 	if m.writeFn != nil {
-		return m.writeFn(ctx, data)
+		return m.writeFn(ctx, event)
 	}
-	m.writes = append(m.writes, data)
+	m.writes = append(m.writes, event)
 	return nil
 }
 
@@ -161,14 +149,12 @@ func TestPipeline_EventFlow_Success(t *testing.T) {
 		},
 	}
 	transform := &MockTransform{}
-	encoder := &MockEncoder{}
-	sink := &MockSink{writes: [][]byte{}}
+	sink := &MockSink{writes: []*cdc.Event{}}
 
 	pipeline := &Pipeline{
 		source:    source,
 		decoder:   decoder,
 		transform: transform,
-		encoder:   encoder,
 		sink:      sink,
 		logger:    logger.New("plain", "info"),
 	}
@@ -180,7 +166,7 @@ func TestPipeline_EventFlow_Success(t *testing.T) {
 
 	// Verify all events were written to sink
 	if len(sink.writes) != 3 {
-		t.Errorf("expected 3 writes, got %d", len(sink.writes))
+		t.Errorf("expected 3 events, got %d", len(sink.writes))
 	}
 }
 
@@ -211,14 +197,12 @@ func TestPipeline_TransformDrop(t *testing.T) {
 			return event, nil
 		},
 	}
-	encoder := &MockEncoder{}
-	sink := &MockSink{writes: [][]byte{}}
+	sink := &MockSink{writes: []*cdc.Event{}}
 
 	pipeline := &Pipeline{
 		source:    source,
 		decoder:   decoder,
 		transform: transform,
-		encoder:   encoder,
 		sink:      sink,
 		logger:    logger.New("plain", "info"),
 	}
@@ -230,7 +214,7 @@ func TestPipeline_TransformDrop(t *testing.T) {
 
 	// Only users event should be written (orders dropped)
 	if len(sink.writes) != 1 {
-		t.Errorf("expected 1 write (orders dropped), got %d", len(sink.writes))
+		t.Errorf("expected 1 event (orders dropped), got %d", len(sink.writes))
 	}
 }
 
@@ -258,14 +242,12 @@ func TestPipeline_DecoderError(t *testing.T) {
 		},
 	}
 	transform := &MockTransform{}
-	encoder := &MockEncoder{}
-	sink := &MockSink{writes: [][]byte{}}
+	sink := &MockSink{writes: []*cdc.Event{}}
 
 	pipeline := &Pipeline{
 		source:    source,
 		decoder:   decoder,
 		transform: transform,
-		encoder:   encoder,
 		sink:      sink,
 		logger:    logger.New("plain", "info"),
 	}
@@ -277,7 +259,7 @@ func TestPipeline_DecoderError(t *testing.T) {
 
 	// users and products should be written (orders skipped due to decode error)
 	if len(sink.writes) != 2 {
-		t.Errorf("expected 2 writes (orders skipped), got %d", len(sink.writes))
+		t.Errorf("expected 2 events (orders skipped), got %d", len(sink.writes))
 	}
 }
 
@@ -309,14 +291,12 @@ func TestPipeline_TransformError(t *testing.T) {
 			return event, nil
 		},
 	}
-	encoder := &MockEncoder{}
-	sink := &MockSink{writes: [][]byte{}}
+	sink := &MockSink{writes: []*cdc.Event{}}
 
 	pipeline := &Pipeline{
 		source:    source,
 		decoder:   decoder,
 		transform: transform,
-		encoder:   encoder,
 		sink:      sink,
 		logger:    logger.New("plain", "info"),
 	}
@@ -328,54 +308,7 @@ func TestPipeline_TransformError(t *testing.T) {
 
 	// users and products should be written (orders skipped due to transform error)
 	if len(sink.writes) != 2 {
-		t.Errorf("expected 2 writes (orders skipped), got %d", len(sink.writes))
-	}
-}
-
-// TestPipeline_EncoderError tests encoder error handling
-func TestPipeline_EncoderError(t *testing.T) {
-	events := make(chan cdc.RawEvent, 3)
-	events <- cdc.RawEvent{Data: map[string]any{"table": "users"}}
-	events <- cdc.RawEvent{Data: map[string]any{"table": "orders"}}
-	events <- cdc.RawEvent{Data: map[string]any{"table": "products"}}
-
-	source := &MockSource{events: events}
-	decoder := &MockDecoder{}
-	transform := &MockTransform{}
-	encoder := &MockEncoder{
-		encodeFn: func(event *cdc.Event) ([]byte, error) {
-			// Error on orders table
-			if event.Table == "orders" {
-				return nil, errors.New("encode error")
-			}
-			return []byte(`{"encoded": true}`), nil
-		},
-	}
-	sink := &MockSink{writes: [][]byte{}}
-
-	pipeline := &Pipeline{
-		source:    source,
-		decoder:   decoder,
-		transform: transform,
-		encoder:   encoder,
-		sink:      sink,
-		logger:    logger.New("plain", "info"),
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		cancel()
-	}()
-
-	err := pipeline.Run(ctx)
-	if err != nil && err != context.Canceled {
-		t.Errorf("Run() error = %v", err)
-	}
-
-	// users and products should be written (orders skipped due to encode error)
-	// Note: All 3 events may be processed before context cancellation
-	if len(sink.writes) < 2 {
-		t.Errorf("expected at least 2 writes (orders skipped), got %d", len(sink.writes))
+		t.Errorf("expected 2 events (orders skipped), got %d", len(sink.writes))
 	}
 }
 
@@ -399,18 +332,17 @@ func TestPipeline_SinkError(t *testing.T) {
 		},
 	}
 	transform := &MockTransform{}
-	encoder := &MockEncoder{}
-	sink := &MockSink{writes: [][]byte{}}
+	sink := &MockSink{writes: []*cdc.Event{}}
 
 	// Track write attempts
 	writeCount := 0
-	sink.writeFn = func(ctx context.Context, data []byte) error {
+	sink.writeFn = func(ctx context.Context, event *cdc.Event) error {
 		writeCount++
 		// Error on second write attempt
 		if writeCount == 2 {
 			return errors.New("sink write error")
 		}
-		sink.writes = append(sink.writes, data)
+		sink.writes = append(sink.writes, event)
 		return nil
 	}
 
@@ -418,7 +350,6 @@ func TestPipeline_SinkError(t *testing.T) {
 		source:    source,
 		decoder:   decoder,
 		transform: transform,
-		encoder:   encoder,
 		sink:      sink,
 		logger:    logger.New("plain", "info"),
 	}
@@ -431,7 +362,7 @@ func TestPipeline_SinkError(t *testing.T) {
 	// users and products should succeed (orders failed but continued)
 	// First write succeeds, second fails, third succeeds
 	if len(sink.writes) != 2 {
-		t.Errorf("expected 2 writes (orders failed), got %d", len(sink.writes))
+		t.Errorf("expected 2 events (orders failed), got %d", len(sink.writes))
 	}
 }
 
@@ -464,7 +395,6 @@ func TestPipeline_Close_Success(t *testing.T) {
 		source:    source,
 		decoder:   &MockDecoder{},
 		transform: transform,
-		encoder:   &MockEncoder{},
 		sink:      sink,
 		logger:    logger.New("plain", "info"),
 	}
@@ -507,7 +437,6 @@ func TestPipeline_Close_WithErrors(t *testing.T) {
 		source:    source,
 		decoder:   &MockDecoder{},
 		transform: transform,
-		encoder:   &MockEncoder{},
 		sink:      sink,
 		logger:    logger.New("plain", "info"),
 	}
@@ -533,14 +462,12 @@ func TestPipeline_ContextCancellation(t *testing.T) {
 	source := &MockSource{events: events}
 	decoder := &MockDecoder{}
 	transform := &MockTransform{}
-	encoder := &MockEncoder{}
 	sink := &MockSink{}
 
 	pipeline := &Pipeline{
 		source:    source,
 		decoder:   decoder,
 		transform: transform,
-		encoder:   encoder,
 		sink:      sink,
 		logger:    logger.New("plain", "info"),
 	}
@@ -565,14 +492,12 @@ func TestPipeline_SourceChannelClosed(t *testing.T) {
 	source := &MockSource{events: events}
 	decoder := &MockDecoder{}
 	transform := &MockTransform{}
-	encoder := &MockEncoder{}
 	sink := &MockSink{}
 
 	pipeline := &Pipeline{
 		source:    source,
 		decoder:   decoder,
 		transform: transform,
-		encoder:   encoder,
 		sink:      sink,
 		logger:    logger.New("plain", "info"),
 	}
@@ -584,7 +509,7 @@ func TestPipeline_SourceChannelClosed(t *testing.T) {
 	}
 
 	if len(sink.writes) != 1 {
-		t.Errorf("expected 1 write, got %d", len(sink.writes))
+		t.Errorf("expected 1 event, got %d", len(sink.writes))
 	}
 }
 
@@ -608,14 +533,12 @@ func TestPipeline_SourceErrorEvent(t *testing.T) {
 		},
 	}
 	transform := &MockTransform{}
-	encoder := &MockEncoder{}
-	sink := &MockSink{writes: [][]byte{}}
+	sink := &MockSink{writes: []*cdc.Event{}}
 
 	pipeline := &Pipeline{
 		source:    source,
 		decoder:   decoder,
 		transform: transform,
-		encoder:   encoder,
 		sink:      sink,
 		logger:    logger.New("plain", "info"),
 	}
@@ -627,7 +550,7 @@ func TestPipeline_SourceErrorEvent(t *testing.T) {
 
 	// users and products should be written (error event skipped)
 	if len(sink.writes) != 2 {
-		t.Errorf("expected 2 writes (error event skipped), got %d", len(sink.writes))
+		t.Errorf("expected 2 events (error event skipped), got %d", len(sink.writes))
 	}
 }
 
@@ -655,14 +578,12 @@ func TestPipeline_DecoderNilEvent(t *testing.T) {
 		},
 	}
 	transform := &MockTransform{}
-	encoder := &MockEncoder{}
-	sink := &MockSink{writes: [][]byte{}}
+	sink := &MockSink{writes: []*cdc.Event{}}
 
 	pipeline := &Pipeline{
 		source:    source,
 		decoder:   decoder,
 		transform: transform,
-		encoder:   encoder,
 		sink:      sink,
 		logger:    logger.New("plain", "info"),
 	}
@@ -674,23 +595,23 @@ func TestPipeline_DecoderNilEvent(t *testing.T) {
 
 	// users and products should be written (relation event skipped)
 	if len(sink.writes) != 2 {
-		t.Errorf("expected 2 writes (relation event skipped), got %d", len(sink.writes))
+		t.Errorf("expected 2 events (relation event skipped), got %d", len(sink.writes))
 	}
 }
 
 // testLogger is a no-op logger for tests using the logger.Logger interface
 type testLogger struct{}
 
-func (l *testLogger) Debug(msg string, args ...any)                                {}
-func (l *testLogger) Info(msg string, args ...any)                                 {}
-func (l *testLogger) Warn(msg string, args ...any)                                 {}
-func (l *testLogger) Error(msg string, args ...any)                                {}
-func (l *testLogger) Fatal(msg string, args ...any)                                {}
-func (l *testLogger) With(args ...any) logger.Logger                               { return l }
-func (l *testLogger) WithGroup(name string) logger.Logger                          { return l }
-func (l *testLogger) DebugContext(ctx context.Context, msg string, args ...any)    {}
-func (l *testLogger) InfoContext(ctx context.Context, msg string, args ...any)     {}
-func (l *testLogger) WarnContext(ctx context.Context, msg string, args ...any)     {}
-func (l *testLogger) ErrorContext(ctx context.Context, msg string, args ...any)    {}
+func (l *testLogger) Debug(msg string, args ...any)                             {}
+func (l *testLogger) Info(msg string, args ...any)                              {}
+func (l *testLogger) Warn(msg string, args ...any)                              {}
+func (l *testLogger) Error(msg string, args ...any)                             {}
+func (l *testLogger) Fatal(msg string, args ...any)                             {}
+func (l *testLogger) With(args ...any) logger.Logger                            { return l }
+func (l *testLogger) WithGroup(name string) logger.Logger                       { return l }
+func (l *testLogger) DebugContext(ctx context.Context, msg string, args ...any) {}
+func (l *testLogger) InfoContext(ctx context.Context, msg string, args ...any)  {}
+func (l *testLogger) WarnContext(ctx context.Context, msg string, args ...any)  {}
+func (l *testLogger) ErrorContext(ctx context.Context, msg string, args ...any) {}
 
 var _ logger.Logger = (*testLogger)(nil)

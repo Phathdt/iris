@@ -2,7 +2,10 @@ package redis
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
+
+	"iris/pkg/cdc"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -74,9 +77,14 @@ func TestRedisSink_Write(t *testing.T) {
 	}
 	defer sink.Close()
 
-	testData := []byte(`{"source":"postgres","table":"users","op":"create"}`)
+	event := &cdc.Event{
+		Source: "postgres",
+		Table:  "users",
+		Op:     "create",
+		After:  map[string]any{"id": 1, "name": "test"},
+	}
 
-	err = sink.Write(ctx, testData)
+	err = sink.Write(ctx, event)
 	if err != nil {
 		t.Fatalf("Write() error = %v", err)
 	}
@@ -96,8 +104,13 @@ func TestRedisSink_Write(t *testing.T) {
 		t.Fatal("expected data in Redis list")
 	}
 
-	if string(result[0]) != string(testData) {
-		t.Errorf("data mismatch: got %q, want %q", result[0], testData)
+	// Verify the JSON data
+	var decoded cdc.Event
+	if err := json.Unmarshal([]byte(result[0]), &decoded); err != nil {
+		t.Fatalf("unmarshal error = %v", err)
+	}
+	if decoded.Table != "users" {
+		t.Errorf("expected table=users, got %s", decoded.Table)
 	}
 
 	// Cleanup
@@ -124,8 +137,13 @@ func TestRedisSink_Write_MaxLen(t *testing.T) {
 
 	// Write more items than MaxLen
 	for i := 0; i < 5; i++ {
-		data := []byte(`{"id":` + string(rune('0'+i)) + `}`)
-		if err := sink.Write(ctx, data); err != nil {
+		event := &cdc.Event{
+			Source: "postgres",
+			Table:  "users",
+			Op:     "create",
+			After:  map[string]any{"id": i},
+		}
+		if err := sink.Write(ctx, event); err != nil {
 			t.Fatalf("Write() error = %v", err)
 		}
 	}
@@ -165,7 +183,11 @@ func TestRedisSink_Write_ContextCancelled(t *testing.T) {
 	}
 	defer sink.Close()
 
-	err = sink.Write(ctx, []byte("test"))
+	err = sink.Write(ctx, &cdc.Event{
+		Source: "postgres",
+		Table:  "users",
+		Op:     "create",
+	})
 	if err == nil {
 		t.Error("expected error for cancelled context")
 	}
@@ -215,10 +237,10 @@ func TestRedisSink_Integration_FullFlow(t *testing.T) {
 	defer sink.Close()
 
 	// Write multiple events
-	events := [][]byte{
-		[]byte(`{"op":"create","table":"users"}`),
-		[]byte(`{"op":"update","table":"users"}`),
-		[]byte(`{"op":"delete","table":"orders"}`),
+	events := []*cdc.Event{
+		{Source: "postgres", Table: "users", Op: "create"},
+		{Source: "postgres", Table: "users", Op: "update"},
+		{Source: "postgres", Table: "orders", Op: "delete"},
 	}
 
 	for _, event := range events {
@@ -247,8 +269,12 @@ func TestRedisSink_Integration_FullFlow(t *testing.T) {
 		if idx < 0 || idx >= len(result) {
 			continue
 		}
-		if string(result[idx]) != string(expected) {
-			t.Errorf("event[%d]: got %q, want %q", i, result[idx], expected)
+		var decoded cdc.Event
+		if err := json.Unmarshal([]byte(result[idx]), &decoded); err != nil {
+			t.Fatalf("unmarshal error = %v", err)
+		}
+		if decoded.Op != expected.Op || decoded.Table != expected.Table {
+			t.Errorf("event[%d]: got %s/%s, want %s/%s", i, decoded.Op, decoded.Table, expected.Op, expected.Table)
 		}
 	}
 
@@ -342,11 +368,16 @@ func BenchmarkRedisSink_Write(b *testing.B) {
 		client.Del(ctx, cfg.Key)
 	}()
 
-	testData := []byte(`{"source":"postgres","table":"users","op":"create","after":{"id":1}}`)
+	testEvent := &cdc.Event{
+		Source: "postgres",
+		Table:  "users",
+		Op:     "create",
+		After:  map[string]any{"id": 1},
+	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if err := sink.Write(ctx, testData); err != nil {
+		if err := sink.Write(ctx, testEvent); err != nil {
 			b.Fatal(err)
 		}
 	}

@@ -29,7 +29,15 @@ type Config struct {
 	Source    SourceConfig     `yaml:"source"`
 	Transform *TransformConfig `yaml:"transform,omitempty"`
 	Sink      SinkConfig       `yaml:"sink"`
+	Mapping   MappingConfig    `yaml:"mapping,omitempty"`
 	Logger    LoggerConfig     `yaml:"logger,omitempty"`
+}
+
+// MappingConfig holds table-to-stream routing configuration
+type MappingConfig struct {
+	// TableStreamMap maps table names to stream keys
+	// If not set, defaults to "cdc:{table}"
+	TableStreamMap map[string]string `yaml:"table_stream_map,omitempty"`
 }
 
 // LoggerConfig holds the logger configuration
@@ -83,7 +91,7 @@ type TransformConfig struct {
 
 // SinkConfig holds the sink configuration
 type SinkConfig struct {
-	// Type is the sink type (currently only "redis")
+	// Type is the sink type ("redis" for list, "redis_stream" for stream)
 	Type string `yaml:"type"`
 
 	// Addr is the Redis server address (e.g., "localhost:6379")
@@ -95,11 +103,15 @@ type SinkConfig struct {
 	// DB is the Redis database number (default 0)
 	DB int `yaml:"db,omitempty"`
 
-	// Key is the Redis list key for CDC events
-	Key string `yaml:"key"`
+	// Key is the Redis list key for CDC events (used when type="redis")
+	Key string `yaml:"key,omitempty"`
 
-	// MaxLen trims the list to maximum length (0 = no trimming)
+	// MaxLen trims the list/stream to maximum length (0 = no trimming)
 	MaxLen int `yaml:"max_len,omitempty"`
+
+	// ApproximateTrim uses ~MAXLEN for better performance (default: false)
+	// Only used when type="redis_stream"
+	ApproximateTrim bool `yaml:"approximate_trim,omitempty"`
 }
 
 // Load loads configuration from a YAML file
@@ -153,14 +165,18 @@ func (c *Config) Validate() error {
 	}
 
 	// Validate sink
-	if c.Sink.Type != "redis" {
-		return fmt.Errorf("unsupported sink type: %s", c.Sink.Type)
-	}
 	if c.Sink.Addr == "" {
 		return fmt.Errorf("sink.addr is required")
 	}
-	if c.Sink.Key == "" {
-		return fmt.Errorf("sink.key is required")
+	switch c.Sink.Type {
+	case "redis":
+		if c.Sink.Key == "" {
+			return fmt.Errorf("sink.key is required for redis list sink")
+		}
+	case "redis_stream":
+		// TableStreamMap is optional - defaults to "cdc:{table}" if not provided
+	default:
+		return fmt.Errorf("unsupported sink type: %s", c.Sink.Type)
 	}
 
 	return nil

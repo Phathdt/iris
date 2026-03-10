@@ -243,8 +243,8 @@ func TestValidate_MissingSinkKey(t *testing.T) {
 		t.Fatal("Validate() expected error for missing sink key, got nil")
 	}
 
-	if err.Error() != "sink.key is required" {
-		t.Errorf("Validate() error = %v, want 'sink.key is required'", err)
+	if err.Error() != "sink.key is required for redis list sink" {
+		t.Errorf("Validate() error = %v, want 'sink.key is required for redis list sink'", err)
 	}
 }
 
@@ -420,6 +420,48 @@ func TestValidate_ValidConfig(t *testing.T) {
 	err := cfg.Validate()
 	if err != nil {
 		t.Errorf("Validate() error = %v, want nil", err)
+	}
+}
+
+func TestValidate_RedisStream_ValidConfig(t *testing.T) {
+	cfg := &Config{
+		Source: SourceConfig{
+			Type:     "postgres",
+			DSN:      "postgres://localhost:5432/testdb",
+			SlotName: "test_slot",
+		},
+		Sink: SinkConfig{
+			Type: "redis_stream",
+			Addr: "localhost:6379",
+			// Key is NOT required for redis_stream
+		},
+	}
+
+	err := cfg.Validate()
+	if err != nil {
+		t.Errorf("Validate() error = %v, want nil for valid redis_stream config", err)
+	}
+}
+
+func TestValidate_RedisStream_MissingAddr(t *testing.T) {
+	cfg := &Config{
+		Source: SourceConfig{
+			Type:     "postgres",
+			DSN:      "postgres://localhost:5432/testdb",
+			SlotName: "test_slot",
+		},
+		Sink: SinkConfig{
+			Type: "redis_stream",
+			Addr: "",
+		},
+	}
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() expected error for missing addr, got nil")
+	}
+	if err.Error() != "sink.addr is required" {
+		t.Errorf("Validate() error = %v, want 'sink.addr is required'", err)
 	}
 }
 

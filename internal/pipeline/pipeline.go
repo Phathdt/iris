@@ -5,15 +5,13 @@ import (
 	"errors"
 	"fmt"
 
-	"iris/internal/encoder"
+	"iris/internal/sink"
 	postgresSource "iris/internal/source/postgres"
+	nopTransform "iris/internal/transform/nop"
 	wasmTransform "iris/internal/transform/wasm"
 	"iris/pkg/cdc"
 	"iris/pkg/config"
 	"iris/pkg/logger"
-
-	redisSink "iris/internal/sink/redis"
-	nopTransform "iris/internal/transform/nop"
 )
 
 // Pipeline wires all CDC components together
@@ -21,7 +19,6 @@ type Pipeline struct {
 	source    cdc.Source
 	decoder   cdc.Decoder
 	transform cdc.Transform
-	encoder   cdc.Encoder
 	sink      cdc.Sink
 	logger    logger.Logger
 }
@@ -59,16 +56,17 @@ func NewPipeline(cfg config.Config, log logger.Logger) (*Pipeline, error) {
 		}
 	}
 
-	// 4. Create encoder
-	enc := encoder.NewJSONEncoder()
-
-	// 5. Create sink
-	snk, err := redisSink.NewRedisSink(redisSink.Config{
-		Addr:     cfg.Sink.Addr,
-		Password: cfg.Sink.Password,
-		DB:       cfg.Sink.DB,
-		Key:      cfg.Sink.Key,
-		MaxLen:   cfg.Sink.MaxLen,
+	// 4. Create sink using factory
+	factory := sink.NewFactory()
+	snk, err := factory.CreateSink(sink.Config{
+		Type:            cfg.Sink.Type,
+		Addr:            cfg.Sink.Addr,
+		Password:        cfg.Sink.Password,
+		DB:              cfg.Sink.DB,
+		Key:             cfg.Sink.Key,
+		TableStreamMap:  cfg.Mapping.TableStreamMap,
+		MaxLen:          cfg.Sink.MaxLen,
+		ApproximateTrim: cfg.Sink.ApproximateTrim,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create sink: %w", err)
@@ -84,13 +82,12 @@ func NewPipeline(cfg config.Config, log logger.Logger) (*Pipeline, error) {
 		source:    src,
 		decoder:   dec,
 		transform: tf,
-		encoder:   enc,
 		sink:      snk,
 		logger:    logger,
 	}, nil
 }
 
-// Run starts the CDC pipeline: Source -> Decoder -> Transform -> Encoder -> Sink
+// Run starts the CDC pipeline: Source -> Decoder -> Transform -> Sink
 func (p *Pipeline) Run(ctx context.Context) error {
 	p.logger.Info("starting CDC pipeline")
 
@@ -149,15 +146,8 @@ func (p *Pipeline) Run(ctx context.Context) error {
 				continue
 			}
 
-			// 3. Encode to output format
-			data, err := p.encoder.Encode(transformed)
-			if err != nil {
-				p.logger.Warn("encode error", "error", err)
-				continue
-			}
-
-			// 4. Write to sink
-			if err := p.sink.Write(ctx, data); err != nil {
+			// 3. Write to sink (sink handles encoding internally)
+			if err := p.sink.Write(ctx, transformed); err != nil {
 				p.logger.Error("sink write error", "error", err)
 				continue
 			}
