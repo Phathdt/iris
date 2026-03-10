@@ -78,6 +78,10 @@ func NewWASM(ctx context.Context, config Config) (*WASMTransform, error) {
 	return transform, nil
 }
 
+// maxWASMResultSize is the maximum allowed size for data or error returned by WASM modules.
+// This prevents a malicious/buggy module from causing OOM on the host.
+const maxWASMResultSize = 16 * 1024 * 1024 // 16 MB
+
 // Process transforms the event using the WASM module.
 // The WASM module receives JSON bytes and returns transformed JSON or an error.
 func (t *WASMTransform) Process(event *cdc.Event) (*cdc.Event, error) {
@@ -85,7 +89,7 @@ func (t *WASMTransform) Process(event *cdc.Event) (*cdc.Event, error) {
 
 	// Instantiate a fresh module instance for each call
 	// This provides isolation and avoids state leakage
-	mod, err := t.runtime.InstantiateModule(ctx, t.compiled, wazero.NewModuleConfig().WithName(""))
+	mod, err := t.runtime.InstantiateModule(ctx, t.compiled, wazero.NewModuleConfig().WithName("").WithStartFunctions())
 	if err != nil {
 		return nil, fmt.Errorf("failed to instantiate WASM module: %w", err)
 	}
@@ -137,6 +141,14 @@ func (t *WASMTransform) Process(event *cdc.Event) (*cdc.Event, error) {
 	wasmResult, err := ParseResult(mod, resultPtr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse WASM result: %w", err)
+	}
+
+	// Validate result sizes to prevent OOM from malicious/buggy modules
+	if wasmResult.DataLen > maxWASMResultSize {
+		return nil, fmt.Errorf("WASM result data too large: %d bytes (max %d)", wasmResult.DataLen, maxWASMResultSize)
+	}
+	if wasmResult.ErrLen > maxWASMResultSize {
+		return nil, fmt.Errorf("WASM result error too large: %d bytes (max %d)", wasmResult.ErrLen, maxWASMResultSize)
 	}
 
 	// Check for error from WASM
