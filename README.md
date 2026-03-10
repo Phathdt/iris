@@ -12,7 +12,8 @@ Postgres → Iris → WASM Transform → Redis/Kafka
 
 - **Lightweight CDC engine** - Replaces heavy stacks like Debezium + Kafka Connect for small use cases
 - **WASM transforms** - Custom event transformation logic via WebAssembly modules
-- **Multiple stream sinks** - Support for Redis, Kafka, and more
+- **Redis List and Stream sinks** - Push events to Redis Lists (LPUSH) or Streams (XADD) with automatic trimming
+- **Table-to-stream mapping** - Route table changes to dedicated Redis Stream keys
 - **Single binary deployment** - No external dependencies required
 
 ## Quick Start
@@ -41,11 +42,22 @@ transform:
   type: wasm
   path: ./transforms/filter.wasm
 
+# Option 1: Redis List sink
 sink:
   type: redis
   addr: localhost:6379
   key: cdc:events
   max_len: 10000
+
+# Option 2: Redis Stream sink
+# sink:
+#   type: redis_stream
+#   addr: localhost:6379
+#   max_len: 10000
+# mapping:
+#   table_stream_map:
+#     users: cdc:users
+#     orders: cdc:orders
 ```
 
 ### Run Pipeline
@@ -59,9 +71,9 @@ sink:
 ```
 ┌─────────────┐
 │  Datasource │
-│  Postgres   │
+│  PostgreSQL  │
 └──────┬──────┘
-       │
+       │  Logical Replication (pgoutput)
        v
 ┌─────────────┐
 │  Iris CDC   │
@@ -70,13 +82,14 @@ sink:
        │
        v
 ┌─────────────┐
-│ WASM Engine │
+│ WASM Engine │  (optional transform/filter)
 └──────┬──────┘
        │
        v
 ┌─────────────┐
 │ Stream Sink │
-│ Kafka/Redis │
+│ Redis List  │  LPUSH + LTRIM
+│ Redis Stream│  XADD + XTRIM
 └─────────────┘
 ```
 
@@ -114,42 +127,48 @@ fn handle(event: Event) -> Option<Event> {
 
 ## Makefile Commands
 
-| Command | Description |
-|---------|-------------|
-| `make build` | Build the binary |
-| `make test` | Run all tests |
-| `make test-unit` | Run unit tests only |
-| `make test-integration` | Run integration tests |
-| `make test-coverage` | Run tests with coverage report |
-| `make lint` | Run linter |
-| `make fmt` | Format code |
-| `make clean` | Clean build artifacts |
+| Command                            | Description                                        |
+| ---------------------------------- | -------------------------------------------------- |
+| `make build`                       | Build the binary                                   |
+| `make test`                        | Run all tests                                      |
+| `make test-unit`                   | Run unit tests only                                |
+| `make test-integration`            | Run integration tests (requires local PG + Redis)  |
+| `make test-integration-containers` | Run integration tests with testcontainers (Docker) |
+| `make test-coverage`               | Run tests with coverage report                     |
+| `make test-race`                   | Run tests with race detector                       |
+| `make lint`                        | Run linter                                         |
+| `make fmt` / `make format`         | Format code                                        |
+| `make clean`                       | Clean build artifacts                              |
 
 ## Project Structure
 
 ```
 iris/
-├── cmd/iris/          # CLI entrypoint
+├── cmd/iris/              # CLI entrypoint (urfave/cli)
 ├── pkg/
-│   ├── cdc/          # Core CDC interfaces and types
-│   └── config/       # Configuration loading
+│   ├── cdc/               # Core CDC interfaces and types
+│   ├── config/            # Configuration loading
+│   └── logger/            # Structured logger (slog)
 ├── internal/
-│   ├── source/       # Source connectors (Postgres, MySQL, MongoDB)
-│   ├── transform/    # WASM runtime and transforms
-│   ├── sink/         # Stream sinks (Redis, Kafka)
-│   ├── encoder/      # Event encoding
-│   └── pipeline/     # Pipeline orchestration
+│   ├── source/postgres/   # PostgreSQL CDC connector (pglogrepl)
+│   ├── transform/
+│   │   ├── wasm/          # WASM runtime (wazero)
+│   │   └── nop/           # No-op passthrough transform
+│   ├── sink/
+│   │   ├── factory.go     # Registry-based sink factory
+│   │   └── redis/         # Redis List + Stream sinks
+│   └── pipeline/          # Pipeline orchestration
 ├── tests/
-│   └── e2e/          # End-to-end tests
-├── docs/             # Documentation
-└── plans/            # Implementation plans
+│   └── e2e/               # End-to-end tests
+├── docs/                  # Documentation
+└── plans/                 # Implementation plans
 ```
 
 ## Use Cases
 
-- **Cache sync** - Postgres → Iris → Redis
-- **Audit pipeline** - MySQL → Iris → Kafka → Analytics
-- **Event-driven backend** - MongoDB → Iris → RabbitMQ
+- **Cache sync** - Postgres → Iris → Redis List
+- **Event streaming** - Postgres → Iris → Redis Stream → Consumers
+- **Table-specific routing** - Postgres (users, orders) → Iris → Separate Redis Streams per table
 
 ## License
 

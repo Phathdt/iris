@@ -149,23 +149,41 @@ func (s *PostgresSource) receiveWALMessages(ctx context.Context) {
 
 				// Check message type (first byte indicates type)
 				switch m.Data[0] {
-				case 'w': // XLogData (WAL data)
-					walData := m.Data[1:] // Skip the 'w' prefix
-					if len(walData) > 0 {
-						// Parse the logical replication message
-						logicalMsg, err := pglogrepl.Parse(walData)
-						if err != nil {
-							// Skip unparseable messages
-							continue
-						}
+				case pglogrepl.XLogDataByteID:
+					// Parse XLogData envelope (24-byte header: WALStart + ServerWALEnd + ServerTime)
+					xld, err := pglogrepl.ParseXLogData(m.Data[1:])
+					if err != nil {
+						continue
+					}
 
-						// Send as raw event
-						s.events <- cdc.RawEvent{
-							Data: logicalMsg,
-							Meta: map[string]string{
-								"type": fmt.Sprintf("%T", logicalMsg),
+					// Parse the logical replication message from WAL data
+					logicalMsg, err := pglogrepl.Parse(xld.WALData)
+					if err != nil {
+						continue
+					}
+
+					// Send as raw event
+					s.events <- cdc.RawEvent{
+						Data: logicalMsg,
+						Meta: map[string]string{
+							"type": fmt.Sprintf("%T", logicalMsg),
+						},
+					}
+
+				case pglogrepl.PrimaryKeepaliveMessageByteID:
+					pkm, err := pglogrepl.ParsePrimaryKeepaliveMessage(m.Data[1:])
+					if err != nil {
+						continue
+					}
+					// Reply to keepalive if requested to keep the connection alive
+					if pkm.ReplyRequested {
+						pglogrepl.SendStandbyStatusUpdate(
+							ctx,
+							s.replConn,
+							pglogrepl.StandbyStatusUpdate{
+								WALWritePosition: pkm.ServerWALEnd,
 							},
-						}
+						)
 					}
 				}
 			}

@@ -6,7 +6,7 @@ GOBUILD=$(GOCMD) build
 GOTEST=$(GOCMD) test
 GOGET=$(GOCMD) get
 GOMOD=$(GOCMD) mod
-GOFMT=$(GOCMD) fmt
+GOFMT=gofmt
 
 # Binary name
 BINARY_NAME=iris
@@ -81,7 +81,7 @@ lint:
 	@echo "Running go vet..."
 	go vet ./...
 	@echo "Running go fmt..."
-	@$(GOFMT) -d ./...
+	@$(GOFMT) -d .
 	@echo "Lint complete"
 
 # Clean build artifacts
@@ -104,6 +104,10 @@ test-unit:
 # Run integration tests only (require PostgreSQL + Redis)
 test-integration:
 	$(GOTEST) $(TEST_FLAGS) -timeout $(TEST_TIMEOUT) -run Integration ./internal/...
+
+# Run integration tests with testcontainers-go (auto-manages Redis)
+test-integration-containers:
+	$(GOTEST) $(TEST_FLAGS) -tags=integration -timeout $(TEST_TIMEOUT) ./internal/...
 
 # Run E2E tests (requires Docker Compose)
 test-e2e:
@@ -154,14 +158,15 @@ help:
 	@echo "  run-config        - Run with config (CONFIG=path)"
 	@echo ""
 	@echo "Test:"
-	@echo "  test              - Run all tests"
-	@echo "  test-unit         - Run unit tests (skip integration)"
-	@echo "  test-integration  - Run integration tests"
-	@echo "  test-e2e          - Run E2E tests"
-	@echo "  test-e2e-docker   - Run E2E tests with Docker Compose"
-	@echo "  test-coverage     - Run tests with coverage report"
-	@echo "  test-race         - Run tests with race detector"
-	@echo "  test-bench        - Run benchmarks"
+	@echo "  test                      - Run all tests"
+	@echo "  test-unit                 - Run unit tests (skip integration)"
+	@echo "  test-integration          - Run integration tests"
+	@echo "  test-integration-containers - Run integration tests (auto-manages containers)"
+	@echo "  test-e2e                  - Run E2E tests"
+	@echo "  test-e2e-docker           - Run E2E tests with Docker Compose"
+	@echo "  test-coverage             - Run tests with coverage report"
+	@echo "  test-race                 - Run tests with race detector"
+	@echo "  test-bench                - Run benchmarks"
 	@echo ""
 	@echo "Code Quality:"
 	@echo "  fmt               - Format code (fix formatting)"
