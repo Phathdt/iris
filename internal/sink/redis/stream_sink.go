@@ -63,7 +63,7 @@ func (s *RedisStreamSink) Write(ctx context.Context, event *cdc.Event) error {
 	// Build field map for XADD
 	// Store the JSON payload in a 'data' field
 	fields := map[string]any{
-		"data": string(data),
+		"data": data,
 	}
 
 	// Build XADD args with inline trimming

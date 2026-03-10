@@ -165,20 +165,15 @@ func (c *Config) Validate() error {
 	}
 
 	// Validate sink
+	if c.Sink.Addr == "" {
+		return fmt.Errorf("sink.addr is required")
+	}
 	switch c.Sink.Type {
 	case "redis":
-		// Redis List sink
-		if c.Sink.Addr == "" {
-			return fmt.Errorf("sink.addr is required")
-		}
 		if c.Sink.Key == "" {
 			return fmt.Errorf("sink.key is required for redis list sink")
 		}
 	case "redis_stream":
-		// Redis Stream sink
-		if c.Sink.Addr == "" {
-			return fmt.Errorf("sink.addr is required")
-		}
 		// TableStreamMap is optional - defaults to "cdc:{table}" if not provided
 	default:
 		return fmt.Errorf("unsupported sink type: %s", c.Sink.Type)
