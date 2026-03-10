@@ -11,8 +11,8 @@ import (
 	"testing"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	pgcontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go"
+	pgcontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
 // PostgresContainer wraps the testcontainer and provides convenient helpers

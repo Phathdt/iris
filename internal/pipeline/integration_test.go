@@ -14,11 +14,11 @@ import (
 	"iris/pkg/config"
 	"iris/pkg/logger"
 
-	"github.com/redis/go-redis/v9"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/redis/go-redis/v9"
+	"github.com/testcontainers/testcontainers-go"
 	pgcontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
 	rediscontainer "github.com/testcontainers/testcontainers-go/modules/redis"
-	"github.com/testcontainers/testcontainers-go"
 )
 
 // PostgresTestContainer wraps PostgreSQL container for pipeline tests

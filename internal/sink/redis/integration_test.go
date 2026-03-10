@@ -483,4 +483,3 @@ func TestIntegration_RedisStreamSink_ContextCancelled(t *testing.T) {
 		t.Error("expected error for cancelled context, got nil")
 	}
 }
-
