@@ -38,6 +38,12 @@ make test-coverage                 # With coverage report
 make test-race                     # Race detector
 ```
 
+### WASM
+
+```bash
+make build-wasm        # Build example WASM modules (requires Rust + wasm32-unknown-unknown)
+```
+
 ### Development
 
 ```bash
@@ -68,11 +74,17 @@ iris/
 │   ├── source/postgres/       # PostgreSQL CDC connector (pglogrepl)
 │   ├── transform/
 │   │   ├── wasm/              # WASM runtime (wazero)
+│   │   │   └── testdata/      # Pre-built WASM binaries for tests
 │   │   └── nop/               # No-op transform (passthrough)
 │   ├── sink/
 │   │   ├── factory.go         # Registry-based sink factory
 │   │   └── redis/             # Redis List + Stream sinks
 │   └── pipeline/              # Pipeline orchestration
+├── examples/transforms/       # Example WASM transform modules
+│   ├── passthrough/           # TinyGo passthrough (returns events unchanged)
+│   ├── filter/                # TinyGo table filter (allowlist)
+│   ├── passthrough-rs/        # Rust passthrough
+│   └── filter-rs/             # Rust table filter
 ├── tests/e2e/                 # E2E tests
 ├── docs/                      # Documentation (PRD, etc.)
 └── plans/                     # Implementation plans
@@ -135,14 +147,33 @@ sink:
 - **yaml.v3** - YAML parsing
 - **testcontainers-go** - Integration test containers (PostgreSQL, Redis)
 
+## WASM Transform ABI
+
+Modules must export two functions:
+
+- `alloc(size: u32) -> u32` — allocate memory for host to write input
+- `handle(ptr: u32, len: u32) -> u32` — process event, return pointer to WASMResult
+
+WASMResult layout (16 bytes, little-endian):
+```
+[data_ptr:u32][data_len:u32][err_ptr:u32][err_len:u32]
+```
+
+- `data_len=0` → drop event (filtered out)
+- `err_len>0` → error (read error string from err_ptr)
+- Otherwise → transformed event JSON at data_ptr
+
+Example modules in `examples/transforms/` (Rust and TinyGo).
+
 ## Development Notes
 
 - Go 1.26.0
 - Uses logical replication for PostgreSQL CDC (pgoutput plugin)
-- WASM transforms use wazero runtime
+- WASM transforms use wazero runtime with `WithStartFunctions()` to skip `_start`
 - Two Redis sink types: List (LPUSH+LTRIM) and Stream (XADD+XTRIM)
 - Sink factory pattern with registry-based builder registration
 - Sinks handle JSON encoding internally
+- WASM examples: Rust modules via `cargo build --target wasm32-unknown-unknown`, TinyGo modules via `tinygo build -target=wasi` (requires Go <=1.25)
 
 ## Testing Requirements
 
