@@ -85,7 +85,7 @@ func (t *WASMTransform) Process(event *cdc.Event) (*cdc.Event, error) {
 
 	// Instantiate a fresh module instance for each call
 	// This provides isolation and avoids state leakage
-	mod, err := t.runtime.InstantiateModule(ctx, t.compiled, wazero.NewModuleConfig().WithName(""))
+	mod, err := t.runtime.InstantiateModule(ctx, t.compiled, wazero.NewModuleConfig().WithName("").WithStartFunctions())
 	if err != nil {
 		return nil, fmt.Errorf("failed to instantiate WASM module: %w", err)
 	}

@@ -1,4 +1,4 @@
-.PHONY: test test-unit test-integration test-e2e test-coverage format fmt lint build run clean help version
+.PHONY: test test-unit test-integration test-e2e test-coverage format fmt lint build run clean help version build-wasm
 
 # Go parameters
 GOCMD=go
@@ -146,6 +146,16 @@ version:
 	@echo "Git Commit: $(GIT_COMMIT)"
 	@echo "Build Date: $(BUILD_DATE)"
 
+# Build WASM example modules (requires Rust + wasm32-unknown-unknown target)
+build-wasm:
+	@echo "Building WASM transform modules..."
+	CARGO_TARGET_DIR=/tmp/iris-wasm-build cargo build --manifest-path examples/transforms/passthrough-rs/Cargo.toml --release --target wasm32-unknown-unknown
+	CARGO_TARGET_DIR=/tmp/iris-wasm-build cargo build --manifest-path examples/transforms/filter-rs/Cargo.toml --release --target wasm32-unknown-unknown
+	mkdir -p internal/transform/wasm/testdata
+	cp /tmp/iris-wasm-build/wasm32-unknown-unknown/release/passthrough.wasm internal/transform/wasm/testdata/passthrough.wasm
+	cp /tmp/iris-wasm-build/wasm32-unknown-unknown/release/filter.wasm internal/transform/wasm/testdata/filter.wasm
+	@echo "WASM modules built successfully"
+
 # Help
 help:
 	@echo "Iris CDC Pipeline - Makefile Targets"
@@ -180,6 +190,9 @@ help:
 	@echo "Clean:"
 	@echo "  clean             - Clean build artifacts"
 	@echo "  clean-coverage    - Remove coverage files"
+	@echo ""
+	@echo "WASM:"
+	@echo "  build-wasm        - Build example WASM modules (requires Rust)"
 	@echo ""
 	@echo "Other:"
 	@echo "  version           - Show version info"
