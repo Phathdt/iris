@@ -19,6 +19,9 @@ var heap = make([]byte, 0, 64*1024)
 //export alloc
 func alloc(size uint32) uint32 {
 	pos := len(heap)
+	if pos+int(size) > cap(heap) {
+		return 0
+	}
 	heap = heap[:pos+int(size)]
 	return uint32(uintptr(unsafe.Pointer(&heap[pos])))
 }
@@ -30,13 +33,9 @@ type wasmResult struct {
 	errLen  uint32
 }
 
-type cdcEvent struct {
-	Source string         `json:"source"`
-	Table  string         `json:"table"`
-	Op     string         `json:"op"`
-	TS     any            `json:"ts"`
-	Before map[string]any `json:"before,omitempty"`
-	After  map[string]any `json:"after,omitempty"`
+// eventView contains only the fields needed for filtering.
+type eventView struct {
+	Table string `json:"table"`
 }
 
 var allowedTables = map[string]bool{
@@ -48,7 +47,7 @@ var allowedTables = map[string]bool{
 func handle(ptr, size uint32) uint32 {
 	input := unsafe.Slice((*byte)(unsafe.Pointer(uintptr(ptr))), size)
 
-	var event cdcEvent
+	var event eventView
 	if err := json.Unmarshal(input, &event); err != nil {
 		return writeError("unmarshal: " + err.Error())
 	}
@@ -64,6 +63,9 @@ func handle(ptr, size uint32) uint32 {
 
 func writeData(data []byte) uint32 {
 	dataPtr := alloc(uint32(len(data)))
+	if dataPtr == 0 {
+		return 0
+	}
 	dst := unsafe.Slice((*byte)(unsafe.Pointer(uintptr(dataPtr))), len(data))
 	copy(dst, data)
 	return writeResult(dataPtr, uint32(len(data)), 0, 0)
@@ -76,6 +78,9 @@ func writeDrop() uint32 {
 func writeError(msg string) uint32 {
 	errBytes := []byte(msg)
 	errPtr := alloc(uint32(len(errBytes)))
+	if errPtr == 0 {
+		return 0
+	}
 	dst := unsafe.Slice((*byte)(unsafe.Pointer(uintptr(errPtr))), len(errBytes))
 	copy(dst, errBytes)
 	return writeResult(0, 0, errPtr, uint32(len(errBytes)))
@@ -83,6 +88,9 @@ func writeError(msg string) uint32 {
 
 func writeResult(dataPtr, dataLen, errPtr, errLen uint32) uint32 {
 	resultPtr := alloc(uint32(unsafe.Sizeof(wasmResult{})))
+	if resultPtr == 0 {
+		return 0
+	}
 	result := (*wasmResult)(unsafe.Pointer(uintptr(resultPtr)))
 	result.dataPtr = dataPtr
 	result.dataLen = dataLen

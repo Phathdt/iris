@@ -146,15 +146,25 @@ version:
 	@echo "Git Commit: $(GIT_COMMIT)"
 	@echo "Build Date: $(BUILD_DATE)"
 
+# WASM build directory
+WASM_BUILD_DIR ?= $(CURDIR)/build/wasm
+
 # Build WASM example modules (requires Rust + wasm32-unknown-unknown target)
 build-wasm:
 	@echo "Building WASM transform modules..."
-	CARGO_TARGET_DIR=/tmp/iris-wasm-build cargo build --manifest-path examples/transforms/passthrough-rs/Cargo.toml --release --target wasm32-unknown-unknown
-	CARGO_TARGET_DIR=/tmp/iris-wasm-build cargo build --manifest-path examples/transforms/filter-rs/Cargo.toml --release --target wasm32-unknown-unknown
+	CARGO_TARGET_DIR=$(WASM_BUILD_DIR) cargo build --manifest-path examples/transforms/passthrough-rs/Cargo.toml --release --target wasm32-unknown-unknown
+	CARGO_TARGET_DIR=$(WASM_BUILD_DIR) cargo build --manifest-path examples/transforms/filter-rs/Cargo.toml --release --target wasm32-unknown-unknown
 	mkdir -p internal/transform/wasm/testdata
-	cp /tmp/iris-wasm-build/wasm32-unknown-unknown/release/passthrough.wasm internal/transform/wasm/testdata/passthrough.wasm
-	cp /tmp/iris-wasm-build/wasm32-unknown-unknown/release/filter.wasm internal/transform/wasm/testdata/filter.wasm
+	cp $(WASM_BUILD_DIR)/wasm32-unknown-unknown/release/passthrough.wasm internal/transform/wasm/testdata/passthrough.wasm
+	cp $(WASM_BUILD_DIR)/wasm32-unknown-unknown/release/filter.wasm internal/transform/wasm/testdata/filter.wasm
 	@echo "WASM modules built successfully"
+
+# Build TinyGo WASM modules (requires TinyGo + Go <=1.25)
+build-wasm-tinygo:
+	@echo "Building TinyGo WASM transform modules..."
+	cd examples/transforms/passthrough && tinygo build -o ../../../internal/transform/wasm/testdata/passthrough-tinygo.wasm -target=wasi -no-debug main.go
+	cd examples/transforms/filter && tinygo build -o ../../../internal/transform/wasm/testdata/filter-tinygo.wasm -target=wasi -no-debug main.go
+	@echo "TinyGo WASM modules built successfully"
 
 # Help
 help:

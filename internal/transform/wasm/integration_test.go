@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -313,6 +314,9 @@ func TestIntegration_CrossRuntime_IdenticalBehavior(t *testing.T) {
 
 func mustCreateIntegrationTransform(t *testing.T, path string) *WASMTransform {
 	t.Helper()
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		t.Skipf("WASM module not found at %s, skipping test (build with make build-wasm or build-wasm-tinygo)", path)
+	}
 	transform, err := NewWASM(context.Background(), Config{Path: path})
 	if err != nil {
 		t.Fatalf("failed to create transform from %s: %v", path, err)
