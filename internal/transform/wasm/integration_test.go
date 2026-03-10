@@ -165,15 +165,15 @@ func testJSONFidelity(t *testing.T, wasmPath string) {
 			"nullable": nil,
 		},
 		After: map[string]any{
-			"id":       float64(1),
-			"name":     "after",
-			"active":   false,
-			"score":    float64(100.0),
-			"nullable": nil,
-			"nested":   map[string]any{"key": "value", "num": float64(42)},
-			"array":    []any{float64(1), float64(2), float64(3)},
+			"id":        float64(1),
+			"name":      "after",
+			"active":    false,
+			"score":     float64(100.0),
+			"nullable":  nil,
+			"nested":    map[string]any{"key": "value", "num": float64(42)},
+			"array":     []any{float64(1), float64(2), float64(3)},
 			"empty_str": "",
-			"zero":     float64(0),
+			"zero":      float64(0),
 		},
 	}
 
