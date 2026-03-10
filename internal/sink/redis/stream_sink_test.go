@@ -2,15 +2,57 @@ package redis
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
+
+	"iris/pkg/cdc"
 
 	"github.com/redis/go-redis/v9"
 )
 
+func TestStreamConfig_GetStreamKey(t *testing.T) {
+	tests := []struct {
+		name     string
+		cfg      StreamConfig
+		table    string
+		expected string
+	}{
+		{
+			name:     "explicit mapping",
+			cfg:      StreamConfig{TableStreamMap: map[string]string{"users": "my:users:stream"}},
+			table:    "users",
+			expected: "my:users:stream",
+		},
+		{
+			name:     "default when no mapping",
+			cfg:      StreamConfig{},
+			table:    "orders",
+			expected: "cdc:orders",
+		},
+		{
+			name:     "default for unmapped table",
+			cfg:      StreamConfig{TableStreamMap: map[string]string{"users": "my:stream"}},
+			table:    "orders",
+			expected: "cdc:orders",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.cfg.GetStreamKey(tt.table)
+			if got != tt.expected {
+				t.Errorf("GetStreamKey(%q) = %q, want %q", tt.table, got, tt.expected)
+			}
+		})
+	}
+}
+
 func TestStreamConfig_Defaults(t *testing.T) {
 	cfg := StreamConfig{
-		Addr:      "localhost:6379",
-		StreamKey: "test:stream",
+		Addr: "localhost:6379",
+		TableStreamMap: map[string]string{
+			"test_table": "test:stream",
+		},
 	}
 
 	if cfg.DB != 0 {
@@ -31,8 +73,10 @@ func TestRedisStreamSink_NewRedisStreamSink_InvalidAddr(t *testing.T) {
 
 	// Test with invalid address
 	cfg := StreamConfig{
-		Addr:      "invalid-address:99999",
-		StreamKey: "test:stream",
+		Addr: "invalid-address:99999",
+		TableStreamMap: map[string]string{
+			"test_table": "test:stream",
+		},
 	}
 
 	_, err := NewRedisStreamSink(cfg)
@@ -48,8 +92,10 @@ func TestRedisStreamSink_NewRedisStreamSink_ConnectionError(t *testing.T) {
 
 	// Test with unreachable address
 	cfg := StreamConfig{
-		Addr:      "localhost:1", // Port 1 is typically closed
-		StreamKey: "test:stream",
+		Addr: "localhost:1", // Port 1 is typically closed
+		TableStreamMap: map[string]string{
+			"test_table": "test:stream",
+		},
 	}
 
 	_, err := NewRedisStreamSink(cfg)
@@ -67,8 +113,10 @@ func TestRedisStreamSink_Write(t *testing.T) {
 	ctx := context.Background()
 
 	cfg := StreamConfig{
-		Addr:      "localhost:6379",
-		StreamKey: "test:cdc:stream:unit",
+		Addr: "localhost:6379",
+		TableStreamMap: map[string]string{
+			"users": "test:cdc:stream:unit",
+		},
 	}
 
 	sink, err := NewRedisStreamSink(cfg)
@@ -77,9 +125,14 @@ func TestRedisStreamSink_Write(t *testing.T) {
 	}
 	defer sink.Close()
 
-	testData := []byte(`{"source":"postgres","table":"users","op":"create"}`)
+	event := &cdc.Event{
+		Source: "postgres",
+		Table:  "users",
+		Op:     "create",
+		After:  map[string]any{"id": 1, "name": "test"},
+	}
 
-	err = sink.Write(ctx, testData)
+	err = sink.Write(ctx, event)
 	if err != nil {
 		t.Fatalf("Write() error = %v", err)
 	}
@@ -90,7 +143,7 @@ func TestRedisStreamSink_Write(t *testing.T) {
 	})
 	defer client.Close()
 
-	result, err := client.XRange(ctx, cfg.StreamKey, "-", "+").Result()
+	result, err := client.XRange(ctx, "test:cdc:stream:unit", "-", "+").Result()
 	if err != nil {
 		t.Fatalf("XRange error = %v", err)
 	}
@@ -101,16 +154,22 @@ func TestRedisStreamSink_Write(t *testing.T) {
 
 	// Check the 'data' field
 	entry := result[0]
-	dataField, ok := entry.Values["data"]
+	dataField, ok := entry.Values["data"].(string)
 	if !ok {
 		t.Fatal("expected 'data' field in stream entry")
 	}
-	if dataField != string(testData) {
-		t.Errorf("data mismatch: got %q, want %q", dataField, testData)
+
+	// Verify the JSON data
+	var decoded cdc.Event
+	if err := json.Unmarshal([]byte(dataField), &decoded); err != nil {
+		t.Fatalf("unmarshal error = %v", err)
+	}
+	if decoded.Table != "users" {
+		t.Errorf("expected table=users, got %s", decoded.Table)
 	}
 
 	// Cleanup
-	client.Del(ctx, cfg.StreamKey)
+	client.Del(ctx, "test:cdc:stream:unit")
 }
 
 func TestRedisStreamSink_Write_MaxLen(t *testing.T) {
@@ -120,9 +179,11 @@ func TestRedisStreamSink_Write_MaxLen(t *testing.T) {
 
 	ctx := context.Background()
 	cfg := StreamConfig{
-		Addr:      "localhost:6379",
-		StreamKey: "test:cdc:stream:maxlen",
-		MaxLen:    3,
+		Addr: "localhost:6379",
+		TableStreamMap: map[string]string{
+			"users": "test:cdc:stream:maxlen",
+		},
+		MaxLen: 3,
 	}
 
 	sink, err := NewRedisStreamSink(cfg)
@@ -133,8 +194,13 @@ func TestRedisStreamSink_Write_MaxLen(t *testing.T) {
 
 	// Write more items than MaxLen
 	for i := 0; i < 5; i++ {
-		data := []byte(`{"id":` + string(rune('0'+i)) + `}`)
-		if err := sink.Write(ctx, data); err != nil {
+		event := &cdc.Event{
+			Source: "postgres",
+			Table:  "users",
+			Op:     "create",
+			After:  map[string]any{"id": i},
+		}
+		if err := sink.Write(ctx, event); err != nil {
 			t.Fatalf("Write() error = %v", err)
 		}
 	}
@@ -143,7 +209,7 @@ func TestRedisStreamSink_Write_MaxLen(t *testing.T) {
 	client := redis.NewClient(&redis.Options{Addr: cfg.Addr})
 	defer client.Close()
 
-	result, err := client.XRange(ctx, cfg.StreamKey, "-", "+").Result()
+	result, err := client.XRange(ctx, "test:cdc:stream:maxlen", "-", "+").Result()
 	if err != nil {
 		t.Fatalf("XRange error = %v", err)
 	}
@@ -152,7 +218,7 @@ func TestRedisStreamSink_Write_MaxLen(t *testing.T) {
 		t.Errorf("stream length = %d, want %d", len(result), cfg.MaxLen)
 	}
 
-	client.Del(ctx, cfg.StreamKey)
+	client.Del(ctx, "test:cdc:stream:maxlen")
 }
 
 func TestRedisStreamSink_Write_MaxLenApprox(t *testing.T) {
@@ -162,8 +228,10 @@ func TestRedisStreamSink_Write_MaxLenApprox(t *testing.T) {
 
 	ctx := context.Background()
 	cfg := StreamConfig{
-		Addr:            "localhost:6379",
-		StreamKey:       "test:cdc:stream:maxlenapprox",
+		Addr: "localhost:6379",
+		TableStreamMap: map[string]string{
+			"users": "test:cdc:stream:maxlenapprox",
+		},
 		MaxLen:          3,
 		ApproximateTrim: true,
 	}
@@ -176,8 +244,13 @@ func TestRedisStreamSink_Write_MaxLenApprox(t *testing.T) {
 
 	// Write more items than MaxLen
 	for i := 0; i < 5; i++ {
-		data := []byte(`{"id":` + string(rune('0'+i)) + `}`)
-		if err := sink.Write(ctx, data); err != nil {
+		event := &cdc.Event{
+			Source: "postgres",
+			Table:  "users",
+			Op:     "create",
+			After:  map[string]any{"id": i},
+		}
+		if err := sink.Write(ctx, event); err != nil {
 			t.Fatalf("Write() error = %v", err)
 		}
 	}
@@ -186,7 +259,7 @@ func TestRedisStreamSink_Write_MaxLenApprox(t *testing.T) {
 	client := redis.NewClient(&redis.Options{Addr: cfg.Addr})
 	defer client.Close()
 
-	result, err := client.XRange(ctx, cfg.StreamKey, "-", "+").Result()
+	result, err := client.XRange(ctx, "test:cdc:stream:maxlenapprox", "-", "+").Result()
 	if err != nil {
 		t.Fatalf("XRange error = %v", err)
 	}
@@ -196,7 +269,7 @@ func TestRedisStreamSink_Write_MaxLenApprox(t *testing.T) {
 		t.Errorf("stream length = %d, expected around %d", len(result), cfg.MaxLen)
 	}
 
-	client.Del(ctx, cfg.StreamKey)
+	client.Del(ctx, "test:cdc:stream:maxlenapprox")
 }
 
 func TestRedisStreamSink_Write_ContextCancelled(t *testing.T) {
@@ -208,8 +281,10 @@ func TestRedisStreamSink_Write_ContextCancelled(t *testing.T) {
 	cancel() // Cancel immediately
 
 	cfg := StreamConfig{
-		Addr:      "localhost:6379",
-		StreamKey: "test:stream",
+		Addr: "localhost:6379",
+		TableStreamMap: map[string]string{
+			"users": "test:stream",
+		},
 	}
 
 	sink, err := NewRedisStreamSink(cfg)
@@ -218,7 +293,11 @@ func TestRedisStreamSink_Write_ContextCancelled(t *testing.T) {
 	}
 	defer sink.Close()
 
-	err = sink.Write(ctx, []byte("test"))
+	err = sink.Write(ctx, &cdc.Event{
+		Source: "postgres",
+		Table:  "users",
+		Op:     "create",
+	})
 	if err == nil {
 		t.Error("expected error for cancelled context")
 	}
@@ -230,8 +309,10 @@ func TestRedisStreamSink_Close(t *testing.T) {
 	}
 
 	cfg := StreamConfig{
-		Addr:      "localhost:6379",
-		StreamKey: "test:stream",
+		Addr: "localhost:6379",
+		TableStreamMap: map[string]string{
+			"users": "test:stream",
+		},
 	}
 
 	sink, err := NewRedisStreamSink(cfg)
@@ -256,9 +337,15 @@ func TestRedisStreamSink_Integration_FullFlow(t *testing.T) {
 	}
 
 	ctx := context.Background()
+	usersStream := "test:cdc:fullflow:users"
+	ordersStream := "test:cdc:fullflow:orders"
+
 	cfg := StreamConfig{
-		Addr:      "localhost:6379",
-		StreamKey: "test:cdc:fullflow:stream",
+		Addr: "localhost:6379",
+		TableStreamMap: map[string]string{
+			"users":  usersStream,
+			"orders": ordersStream,
+		},
 	}
 
 	sink, err := NewRedisStreamSink(cfg)
@@ -267,11 +354,11 @@ func TestRedisStreamSink_Integration_FullFlow(t *testing.T) {
 	}
 	defer sink.Close()
 
-	// Write multiple events
-	events := [][]byte{
-		[]byte(`{"op":"create","table":"users"}`),
-		[]byte(`{"op":"update","table":"users"}`),
-		[]byte(`{"op":"delete","table":"orders"}`),
+	// Write multiple events across different tables
+	events := []*cdc.Event{
+		{Source: "postgres", Table: "users", Op: "create"},
+		{Source: "postgres", Table: "users", Op: "update"},
+		{Source: "postgres", Table: "orders", Op: "delete"},
 	}
 
 	for _, event := range events {
@@ -280,35 +367,62 @@ func TestRedisStreamSink_Integration_FullFlow(t *testing.T) {
 		}
 	}
 
-	// Read and verify
+	// Read and verify per-table routing
 	client := redis.NewClient(&redis.Options{Addr: cfg.Addr})
 	defer client.Close()
 
-	result, err := client.XRange(ctx, cfg.StreamKey, "-", "+").Result()
+	// Verify users stream has 2 events
+	usersResult, err := client.XRange(ctx, usersStream, "-", "+").Result()
 	if err != nil {
-		t.Fatalf("XRange error = %v", err)
+		t.Fatalf("XRange users error = %v", err)
+	}
+	if len(usersResult) != 2 {
+		t.Fatalf("users stream: expected 2 events, got %d", len(usersResult))
 	}
 
-	if len(result) != len(events) {
-		t.Fatalf("expected %d events, got %d", len(events), len(result))
+	// Verify orders stream has 1 event
+	ordersResult, err := client.XRange(ctx, ordersStream, "-", "+").Result()
+	if err != nil {
+		t.Fatalf("XRange orders error = %v", err)
+	}
+	if len(ordersResult) != 1 {
+		t.Fatalf("orders stream: expected 1 event, got %d", len(ordersResult))
 	}
 
-	// Verify order (streams maintain chronological order)
-	for i, expected := range events {
-		if i >= len(result) {
-			break
-		}
-		dataField, ok := result[i].Values["data"]
+	// Verify event content
+	for i, expected := range []struct {
+		op    cdc.EventType
+		table string
+	}{{"create", "users"}, {"update", "users"}} {
+		dataField, ok := usersResult[i].Values["data"].(string)
 		if !ok {
-			t.Errorf("event[%d]: missing 'data' field", i)
+			t.Errorf("users[%d]: missing 'data' field", i)
 			continue
 		}
-		if dataField != string(expected) {
-			t.Errorf("event[%d]: got %q, want %q", i, dataField, expected)
+		var decoded cdc.Event
+		if err := json.Unmarshal([]byte(dataField), &decoded); err != nil {
+			t.Errorf("users[%d]: unmarshal error = %v", i, err)
+			continue
+		}
+		if decoded.Op != expected.op || decoded.Table != expected.table {
+			t.Errorf("users[%d]: got %s/%s, want %s/%s", i, decoded.Op, decoded.Table, expected.op, expected.table)
 		}
 	}
 
-	client.Del(ctx, cfg.StreamKey)
+	// Verify orders event
+	dataField, ok := ordersResult[0].Values["data"].(string)
+	if !ok {
+		t.Fatal("orders[0]: missing 'data' field")
+	}
+	var decoded cdc.Event
+	if err := json.Unmarshal([]byte(dataField), &decoded); err != nil {
+		t.Fatalf("orders[0]: unmarshal error = %v", err)
+	}
+	if decoded.Op != "delete" || decoded.Table != "orders" {
+		t.Errorf("orders[0]: got %s/%s, want delete/orders", decoded.Op, decoded.Table)
+	}
+
+	client.Del(ctx, usersStream, ordersStream)
 }
 
 func TestStreamConfig_Validation(t *testing.T) {
@@ -321,32 +435,40 @@ func TestStreamConfig_Validation(t *testing.T) {
 		{
 			name: "valid config",
 			cfg: StreamConfig{
-				Addr:      "localhost:6379",
-				StreamKey: "valid:stream",
+				Addr: "localhost:6379",
+				TableStreamMap: map[string]string{
+					"users": "valid:stream",
+				},
 			},
 		},
 		{
 			name: "with password",
 			cfg: StreamConfig{
-				Addr:      "localhost:6379",
-				Password:  "secret",
-				StreamKey: "stream",
+				Addr:     "localhost:6379",
+				Password: "secret",
+				TableStreamMap: map[string]string{
+					"users": "stream",
+				},
 			},
 		},
 		{
 			name: "with DB",
 			cfg: StreamConfig{
-				Addr:      "localhost:6379",
-				DB:        5,
-				StreamKey: "stream",
+				Addr: "localhost:6379",
+				DB:   5,
+				TableStreamMap: map[string]string{
+					"users": "stream",
+				},
 			},
 		},
 		{
 			name: "with max len",
 			cfg: StreamConfig{
-				Addr:      "localhost:6379",
-				MaxLen:    1000,
-				StreamKey: "stream",
+				Addr:   "localhost:6379",
+				MaxLen: 1000,
+				TableStreamMap: map[string]string{
+					"users": "stream",
+				},
 			},
 		},
 	}
@@ -376,8 +498,10 @@ func BenchmarkRedisStreamSink_Write(b *testing.B) {
 
 	ctx := context.Background()
 	cfg := StreamConfig{
-		Addr:      "localhost:6379",
-		StreamKey: "bench:cdc:stream",
+		Addr: "localhost:6379",
+		TableStreamMap: map[string]string{
+			"users": "bench:cdc:stream",
+		},
 	}
 
 	sink, err := NewRedisStreamSink(cfg)
@@ -387,14 +511,19 @@ func BenchmarkRedisStreamSink_Write(b *testing.B) {
 	defer sink.Close()
 	defer func() {
 		client := redis.NewClient(&redis.Options{Addr: cfg.Addr})
-		client.Del(ctx, cfg.StreamKey)
+		client.Del(ctx, "bench:cdc:stream")
 	}()
 
-	testData := []byte(`{"source":"postgres","table":"users","op":"create","after":{"id":1}}`)
+	testEvent := &cdc.Event{
+		Source: "postgres",
+		Table:  "users",
+		Op:     "create",
+		After:  map[string]any{"id": 1},
+	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if err := sink.Write(ctx, testData); err != nil {
+		if err := sink.Write(ctx, testEvent); err != nil {
 			b.Fatal(err)
 		}
 	}

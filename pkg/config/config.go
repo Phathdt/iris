@@ -29,7 +29,15 @@ type Config struct {
 	Source    SourceConfig     `yaml:"source"`
 	Transform *TransformConfig `yaml:"transform,omitempty"`
 	Sink      SinkConfig       `yaml:"sink"`
+	Mapping   MappingConfig    `yaml:"mapping,omitempty"`
 	Logger    LoggerConfig     `yaml:"logger,omitempty"`
+}
+
+// MappingConfig holds table-to-stream routing configuration
+type MappingConfig struct {
+	// TableStreamMap maps table names to stream keys
+	// If not set, defaults to "cdc:{table}"
+	TableStreamMap map[string]string `yaml:"table_stream_map,omitempty"`
 }
 
 // LoggerConfig holds the logger configuration
@@ -97,9 +105,6 @@ type SinkConfig struct {
 
 	// Key is the Redis list key for CDC events (used when type="redis")
 	Key string `yaml:"key,omitempty"`
-
-	// StreamKey is the Redis stream key for CDC events (used when type="redis_stream")
-	StreamKey string `yaml:"stream_key,omitempty"`
 
 	// MaxLen trims the list/stream to maximum length (0 = no trimming)
 	MaxLen int `yaml:"max_len,omitempty"`
@@ -174,9 +179,7 @@ func (c *Config) Validate() error {
 		if c.Sink.Addr == "" {
 			return fmt.Errorf("sink.addr is required")
 		}
-		if c.Sink.StreamKey == "" {
-			return fmt.Errorf("sink.stream_key is required for redis_stream sink")
-		}
+		// TableStreamMap is optional - defaults to "cdc:{table}" if not provided
 	default:
 		return fmt.Errorf("unsupported sink type: %s", c.Sink.Type)
 	}

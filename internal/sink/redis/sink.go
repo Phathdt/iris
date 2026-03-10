@@ -2,10 +2,16 @@ package redis
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+
+	"iris/pkg/cdc"
 
 	"github.com/redis/go-redis/v9"
 )
+
+// Ensure RedisSink implements cdc.Sink interface
+var _ cdc.Sink = (*RedisSink)(nil)
 
 // RedisSink implements Sink interface for Redis list
 type RedisSink struct {
@@ -15,6 +21,13 @@ type RedisSink struct {
 
 // NewRedisSink creates a new Redis sink with connection testing
 func NewRedisSink(cfg Config) (*RedisSink, error) {
+	if cfg.Addr == "" {
+		return nil, fmt.Errorf("redis addr is required")
+	}
+	if cfg.Key == "" {
+		return nil, fmt.Errorf("redis key is required")
+	}
+
 	client := redis.NewClient(&redis.Options{
 		Addr:     cfg.Addr,
 		Password: cfg.Password,
@@ -23,6 +36,7 @@ func NewRedisSink(cfg Config) (*RedisSink, error) {
 
 	// Test connection on initialization
 	if err := client.Ping(context.Background()).Err(); err != nil {
+		client.Close()
 		return nil, fmt.Errorf("redis ping: %w", err)
 	}
 
@@ -32,9 +46,19 @@ func NewRedisSink(cfg Config) (*RedisSink, error) {
 	}, nil
 }
 
-// Write pushes encoded event to Redis list using LPUSH
+// Write pushes event to Redis list using LPUSH
 // Optionally trims the list to MaxLen if configured
-func (s *RedisSink) Write(ctx context.Context, data []byte) error {
+func (s *RedisSink) Write(ctx context.Context, event *cdc.Event) error {
+	if event == nil {
+		return fmt.Errorf("event is nil")
+	}
+
+	// Encode event to JSON
+	data, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("encode event: %w", err)
+	}
+
 	pipe := s.client.Pipeline()
 	pipe.LPush(ctx, s.config.Key, data)
 
@@ -43,7 +67,7 @@ func (s *RedisSink) Write(ctx context.Context, data []byte) error {
 		pipe.LTrim(ctx, s.config.Key, 0, int64(s.config.MaxLen-1))
 	}
 
-	_, err := pipe.Exec(ctx)
+	_, err = pipe.Exec(ctx)
 	return err
 }
 

@@ -32,9 +32,16 @@ sink:
   addr: localhost:6379
   # password: ""                    # Optional: Redis password
   # db: 0                           # Optional: Redis database number
-  stream_key: cdc:events
   max_len: 10000                    # Trim stream to max length (0 = no trimming)
   # approximate_trim: false         # Optional: use ~MAXLEN for better performance
+
+# Mapping configuration (optional)
+# Maps source tables to sink stream keys (used when sink.type="redis_stream")
+# If omitted, defaults to "cdc:{table}" for each source table
+# mapping:
+#   table_stream_map:
+#     users: cdc:users
+#     orders: cdc:orders
 
 # Logger configuration (optional)
 # If not specified, defaults to format: "text", level: "info"

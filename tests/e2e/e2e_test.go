@@ -502,9 +502,14 @@ func TestE2E_PostgresToRedisStream_Basic(t *testing.T) {
 		},
 		Transform: nil, // No transform
 		Sink: config.SinkConfig{
-			Type:      "redis_stream",
-			Addr:      redisAddr,
-			StreamKey: testStreamKey,
+			Type: "redis_stream",
+			Addr: redisAddr,
+		},
+		Mapping: config.MappingConfig{
+			TableStreamMap: map[string]string{
+				"users":  testStreamKey,
+				"orders": testStreamKey,
+			},
 		},
 	}
 
@@ -599,10 +604,14 @@ func TestE2E_RedisStream_MaxLen(t *testing.T) {
 			SlotName: "iris_e2e_stream_maxlen_slot",
 		},
 		Sink: config.SinkConfig{
-			Type:      "redis_stream",
-			Addr:      redisAddr,
-			StreamKey: testStreamKey,
-			MaxLen:    maxLen,
+			Type:   "redis_stream",
+			Addr:   redisAddr,
+			MaxLen: maxLen,
+		},
+		Mapping: config.MappingConfig{
+			TableStreamMap: map[string]string{
+				"users": testStreamKey,
+			},
 		},
 	}
 

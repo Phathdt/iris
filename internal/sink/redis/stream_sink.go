@@ -2,9 +2,11 @@ package redis
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"iris/pkg/cdc"
+
 	"github.com/redis/go-redis/v9"
 )
 
@@ -19,6 +21,10 @@ type RedisStreamSink struct {
 
 // NewRedisStreamSink creates a new Redis Stream sink with connection testing
 func NewRedisStreamSink(cfg StreamConfig) (*RedisStreamSink, error) {
+	if cfg.Addr == "" {
+		return nil, fmt.Errorf("redis addr is required")
+	}
+
 	client := redis.NewClient(&redis.Options{
 		Addr:     cfg.Addr,
 		Password: cfg.Password,
@@ -27,6 +33,7 @@ func NewRedisStreamSink(cfg StreamConfig) (*RedisStreamSink, error) {
 
 	// Test connection on initialization
 	if err := client.Ping(context.Background()).Err(); err != nil {
+		client.Close()
 		return nil, fmt.Errorf("redis ping: %w", err)
 	}
 
@@ -36,41 +43,44 @@ func NewRedisStreamSink(cfg StreamConfig) (*RedisStreamSink, error) {
 	}, nil
 }
 
-// Write pushes encoded event data to Redis Stream using XADD
+// Write pushes event to Redis Stream using XADD
+// The stream key is determined by config.GetStreamKey(event.Table)
 // Optionally trims the stream to MaxLen if configured
-func (s *RedisStreamSink) Write(ctx context.Context, data []byte) error {
+func (s *RedisStreamSink) Write(ctx context.Context, event *cdc.Event) error {
+	if event == nil {
+		return fmt.Errorf("event is nil")
+	}
+
+	// Determine stream key for this table
+	streamKey := s.config.GetStreamKey(event.Table)
+
+	// Encode event to JSON
+	data, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("encode event: %w", err)
+	}
+
 	// Build field map for XADD
-	// Store the JSON payload in a 'data' field, plus metadata
+	// Store the JSON payload in a 'data' field
 	fields := map[string]any{
 		"data": string(data),
 	}
 
-	// Build XADD args
+	// Build XADD args with inline trimming
 	args := &redis.XAddArgs{
-		Stream: s.config.StreamKey,
+		Stream: streamKey,
 		ID:     "*", // Auto-generate stream ID
 		Values: fields,
 	}
 
-	// Execute XADD
-	if err := s.client.XAdd(ctx, args).Err(); err != nil {
-		return fmt.Errorf("xadd: %w", err)
+	// Atomic trim within XADD if MaxLen is configured
+	if s.config.MaxLen > 0 {
+		args.MaxLen = int64(s.config.MaxLen)
+		args.Approx = s.config.ApproximateTrim
 	}
 
-	// Optional: trim stream to max length
-	if s.config.MaxLen > 0 {
-		var err error
-		if s.config.ApproximateTrim {
-			// Use approximate trimming for better performance
-			err = s.client.XTrimMaxLenApprox(ctx, s.config.StreamKey, int64(s.config.MaxLen), 0).Err()
-		} else {
-			// Exact trimming
-			err = s.client.XTrimMaxLen(ctx, s.config.StreamKey, int64(s.config.MaxLen)).Err()
-		}
-		// Note: Trim errors are intentionally ignored to avoid failing the write.
-		// The event was already added successfully via XADD above.
-		// Trimming is a best-effort operation for retention policy, not critical path.
-		_ = err
+	if err := s.client.XAdd(ctx, args).Err(); err != nil {
+		return fmt.Errorf("xadd: %w", err)
 	}
 
 	return nil
