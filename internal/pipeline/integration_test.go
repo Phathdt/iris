@@ -52,7 +52,7 @@ ALTER TABLE users REPLICA IDENTITY FULL;
 -- Create publication for logical replication AFTER tables are defined
 CREATE PUBLICATION pglogrepl_publication FOR ALL TABLES;
 `
-	if err := os.WriteFile(initScriptPath, []byte(initScript), 0644); err != nil {
+	if err := os.WriteFile(initScriptPath, []byte(initScript), 0o644); err != nil {
 		t.Fatalf("failed to create init script: %v", err)
 	}
 

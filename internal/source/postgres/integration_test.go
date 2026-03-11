@@ -111,7 +111,11 @@ func TestIntegration_PostgresSource_InsertEvent(t *testing.T) {
 		select {
 		case <-timeout:
 			if !eventFound {
-				t.Logf("timeout waiting for INSERT CDC event (got %d messages, channel closed: %v)", msgCount, channelClosed)
+				t.Logf(
+					"timeout waiting for INSERT CDC event (got %d messages, channel closed: %v)",
+					msgCount,
+					channelClosed,
+				)
 				t.Fatal("timeout waiting for INSERT CDC event")
 			}
 			return

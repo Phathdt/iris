@@ -102,7 +102,7 @@ func TestFlush_WhenNotDirty_NoOp(t *testing.T) {
 
 func TestLoad_CorruptedFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "offset.json")
-	if err := os.WriteFile(path, []byte("{invalid json"), 0644); err != nil {
+	if err := os.WriteFile(path, []byte("{invalid json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

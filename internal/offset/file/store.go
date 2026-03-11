@@ -91,7 +91,7 @@ func (s *FileStore) Flush() error {
 
 	// Atomic write: write to tmp file, then rename
 	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return fmt.Errorf("write offset tmp: %w", err)
 	}
 	if err := os.Rename(tmp, s.path); err != nil {
