@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
+	"iris/internal/dlq"
 	"iris/internal/sink"
 	postgresSource "iris/internal/source/postgres"
 	nopTransform "iris/internal/transform/nop"
@@ -16,11 +18,14 @@ import (
 
 // Pipeline wires all CDC components together
 type Pipeline struct {
-	source    cdc.Source
-	decoder   cdc.Decoder
-	transform cdc.Transform
-	sink      cdc.Sink
-	logger    logger.Logger
+	source      cdc.Source
+	decoder     cdc.Decoder
+	transform   cdc.Transform
+	sink        cdc.Sink
+	dlq         *dlq.DLQ
+	maxAttempts int
+	backoffMs   int
+	logger      logger.Logger
 }
 
 // NewPipeline creates a new pipeline with all components wired together
@@ -74,6 +79,26 @@ func NewPipeline(cfg config.Config, log logger.Logger) (*Pipeline, error) {
 		return nil, fmt.Errorf("create sink: %w", err)
 	}
 
+	// 5. Create DLQ sink if enabled
+	var dlqSink *dlq.DLQ
+	if cfg.DLQ != nil && cfg.DLQ.Enabled {
+		dlqRawSink, err := factory.CreateSink(sink.Config{
+			Type:            cfg.DLQ.Sink.Type,
+			Addr:            cfg.DLQ.Sink.Addr,
+			Password:        cfg.DLQ.Sink.Password,
+			DB:              cfg.DLQ.Sink.DB,
+			Key:             cfg.DLQ.Sink.Key,
+			MaxLen:          cfg.DLQ.Sink.MaxLen,
+			ApproximateTrim: cfg.DLQ.Sink.ApproximateTrim,
+			Brokers:         cfg.DLQ.Sink.Brokers,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("create dlq sink: %w", err)
+		}
+		dlqSink = dlq.NewDLQ(dlqRawSink)
+		logger.Info("DLQ enabled", "type", cfg.DLQ.Sink.Type)
+	}
+
 	logger.Info("pipeline created successfully",
 		"source", cfg.Source.Type,
 		"transform", cfg.Transform != nil && cfg.Transform.Enabled,
@@ -81,11 +106,14 @@ func NewPipeline(cfg config.Config, log logger.Logger) (*Pipeline, error) {
 	)
 
 	return &Pipeline{
-		source:    src,
-		decoder:   dec,
-		transform: tf,
-		sink:      snk,
-		logger:    logger,
+		source:      src,
+		decoder:     dec,
+		transform:   tf,
+		sink:        snk,
+		dlq:         dlqSink,
+		maxAttempts: cfg.Retry.MaxAttempts,
+		backoffMs:   cfg.Retry.BackoffMs,
+		logger:      logger,
 	}, nil
 }
 
@@ -139,26 +167,55 @@ loop:
 				"op", event.Op,
 			)
 
-			// 2. Transform (filter/enrich/route)
-			transformed, err := p.transform.Process(event)
-			if err != nil {
-				p.logger.Warn("transform error", "error", err)
+			// 2. Transform with retry
+			var transformed *cdc.Event
+			var lastErr error
+			for attempt := 1; attempt <= p.maxAttempts; attempt++ {
+				transformed, lastErr = p.transform.Process(event)
+				if lastErr == nil {
+					break
+				}
+				p.logger.Warn("transform error", "error", lastErr, "attempt", attempt)
+				if attempt < p.maxAttempts {
+					if err := p.sleepWithContext(ctx, p.backoffMs); err != nil {
+						loopErr = ctx.Err()
+						break loop
+					}
+				}
+			}
+			if lastErr != nil {
+				p.sendToDLQ(ctx, event, lastErr, "transform")
 				continue
 			}
 			if transformed == nil {
-				// Event dropped by transform
 				p.logger.Debug("event dropped by transform")
 				continue
 			}
 
-			// 3. Write to sink (sink handles encoding internally)
-			if err := p.sink.Write(ctx, transformed); err != nil {
-				p.logger.Error("sink write error", "error", err)
+			// 3. Write to sink with retry
+			lastErr = nil
+			for attempt := 1; attempt <= p.maxAttempts; attempt++ {
+				lastErr = p.sink.Write(ctx, transformed)
+				if lastErr == nil {
+					break
+				}
+				p.logger.Warn("sink write error", "error", lastErr, "attempt", attempt)
+				if attempt < p.maxAttempts {
+					if err := p.sleepWithContext(ctx, p.backoffMs); err != nil {
+						loopErr = ctx.Err()
+						break loop
+					}
+				}
+			}
+			if lastErr != nil {
+				p.sendToDLQ(ctx, event, lastErr, "sink")
 				continue
 			}
 
 			// 4. Ack offset to source (advances PG replication slot's confirmed_flush_lsn).
 			//    PG persists this server-side, so no external offset store needed for PG sources.
+			//    Note: Offset is only acked after successful sink write. Events routed to DLQ
+			//    or dropped after retry exhaustion are NOT acked, so PG will re-deliver on restart.
 			if event.Offset != nil {
 				if err := p.source.Ack(*event.Offset); err != nil {
 					p.logger.Warn("ack error", "error", err)
@@ -170,6 +227,40 @@ loop:
 	} // end loop
 
 	return loopErr
+}
+
+// sendToDLQ sends a failed event to the DLQ sink, or logs and drops if DLQ is disabled
+func (p *Pipeline) sendToDLQ(ctx context.Context, event *cdc.Event, err error, stage string) {
+	if p.dlq != nil {
+		if dlqErr := p.dlq.Send(ctx, event, err, stage, p.maxAttempts); dlqErr != nil {
+			p.logger.Error("DLQ write failed, dropping event",
+				"stage", stage, "original_error", err, "dlq_error", dlqErr,
+				"table", event.Table, "op", event.Op,
+			)
+			return
+		}
+		p.logger.Warn("event sent to DLQ",
+			"stage", stage, "error", err,
+			"table", event.Table, "op", event.Op, "attempts", p.maxAttempts,
+		)
+		return
+	}
+	p.logger.Error("event failed after retries, dropping",
+		"stage", stage, "error", err,
+		"table", event.Table, "op", event.Op, "attempts", p.maxAttempts,
+	)
+}
+
+// sleepWithContext sleeps for the given duration but returns early if context is cancelled
+func (p *Pipeline) sleepWithContext(ctx context.Context, ms int) error {
+	timer := time.NewTimer(time.Duration(ms) * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 // Close cleans up all pipeline resources
@@ -188,6 +279,12 @@ func (p *Pipeline) Close() error {
 
 	if err := p.sink.Close(); err != nil {
 		errs = append(errs, fmt.Errorf("sink close: %w", err))
+	}
+
+	if p.dlq != nil {
+		if err := p.dlq.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("dlq close: %w", err))
+		}
 	}
 
 	if len(errs) > 0 {
