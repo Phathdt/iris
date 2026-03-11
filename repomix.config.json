@@ -1,0 +1,16 @@
+{
+  "ignore": {
+    "useDefaultPatterns": true,
+    "customPatterns": [
+      "**/*.md",
+      "**/*_test.go",
+      "**/*.wasm",
+      "**/*.txt",
+      "**/*.xml",
+      "**/*.yml",
+      "**/*.yaml",
+      "plans/",
+      ".claude_sessions/"
+    ]
+  }
+}
