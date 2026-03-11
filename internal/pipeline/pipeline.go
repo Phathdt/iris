@@ -105,14 +105,24 @@ func NewPipeline(cfg config.Config, log logger.Logger) (*Pipeline, error) {
 		"sink", cfg.Sink.Type,
 	)
 
+	// Apply defaults for retry config (in case Validate() was not called)
+	maxAttempts := cfg.Retry.MaxAttempts
+	if maxAttempts <= 0 {
+		maxAttempts = 3
+	}
+	backoffMs := cfg.Retry.BackoffMs
+	if backoffMs <= 0 {
+		backoffMs = 100
+	}
+
 	return &Pipeline{
 		source:      src,
 		decoder:     dec,
 		transform:   tf,
 		sink:        snk,
 		dlq:         dlqSink,
-		maxAttempts: cfg.Retry.MaxAttempts,
-		backoffMs:   cfg.Retry.BackoffMs,
+		maxAttempts: maxAttempts,
+		backoffMs:   backoffMs,
 		logger:      logger,
 	}, nil
 }
