@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"iris/internal/dlq"
 	"iris/pkg/cdc"
 	"iris/pkg/config"
 	"iris/pkg/logger"
@@ -152,11 +153,13 @@ func TestPipeline_EventFlow_Success(t *testing.T) {
 	sink := &MockSink{writes: []*cdc.Event{}}
 
 	pipeline := &Pipeline{
-		source:    source,
-		decoder:   decoder,
-		transform: transform,
-		sink:      sink,
-		logger:    logger.New("plain", "info"),
+		source:      source,
+		decoder:     decoder,
+		transform:   transform,
+		sink:        sink,
+		maxAttempts: 1,
+		backoffMs:   0,
+		logger:      logger.New("plain", "info"),
 	}
 
 	err := pipeline.Run(context.Background())
@@ -200,11 +203,13 @@ func TestPipeline_TransformDrop(t *testing.T) {
 	sink := &MockSink{writes: []*cdc.Event{}}
 
 	pipeline := &Pipeline{
-		source:    source,
-		decoder:   decoder,
-		transform: transform,
-		sink:      sink,
-		logger:    logger.New("plain", "info"),
+		source:      source,
+		decoder:     decoder,
+		transform:   transform,
+		sink:        sink,
+		maxAttempts: 1,
+		backoffMs:   0,
+		logger:      logger.New("plain", "info"),
 	}
 
 	err := pipeline.Run(context.Background())
@@ -245,11 +250,13 @@ func TestPipeline_DecoderError(t *testing.T) {
 	sink := &MockSink{writes: []*cdc.Event{}}
 
 	pipeline := &Pipeline{
-		source:    source,
-		decoder:   decoder,
-		transform: transform,
-		sink:      sink,
-		logger:    logger.New("plain", "info"),
+		source:      source,
+		decoder:     decoder,
+		transform:   transform,
+		sink:        sink,
+		maxAttempts: 1,
+		backoffMs:   0,
+		logger:      logger.New("plain", "info"),
 	}
 
 	err := pipeline.Run(context.Background())
@@ -294,11 +301,13 @@ func TestPipeline_TransformError(t *testing.T) {
 	sink := &MockSink{writes: []*cdc.Event{}}
 
 	pipeline := &Pipeline{
-		source:    source,
-		decoder:   decoder,
-		transform: transform,
-		sink:      sink,
-		logger:    logger.New("plain", "info"),
+		source:      source,
+		decoder:     decoder,
+		transform:   transform,
+		sink:        sink,
+		maxAttempts: 1,
+		backoffMs:   0,
+		logger:      logger.New("plain", "info"),
 	}
 
 	err := pipeline.Run(context.Background())
@@ -347,11 +356,13 @@ func TestPipeline_SinkError(t *testing.T) {
 	}
 
 	pipeline := &Pipeline{
-		source:    source,
-		decoder:   decoder,
-		transform: transform,
-		sink:      sink,
-		logger:    logger.New("plain", "info"),
+		source:      source,
+		decoder:     decoder,
+		transform:   transform,
+		sink:        sink,
+		maxAttempts: 1,
+		backoffMs:   0,
+		logger:      logger.New("plain", "info"),
 	}
 
 	err := pipeline.Run(context.Background())
@@ -392,11 +403,13 @@ func TestPipeline_Close_Success(t *testing.T) {
 	}
 
 	pipeline := &Pipeline{
-		source:    source,
-		decoder:   &MockDecoder{},
-		transform: transform,
-		sink:      sink,
-		logger:    logger.New("plain", "info"),
+		source:      source,
+		decoder:     &MockDecoder{},
+		transform:   transform,
+		sink:        sink,
+		maxAttempts: 1,
+		backoffMs:   0,
+		logger:      logger.New("plain", "info"),
 	}
 
 	err := pipeline.Close()
@@ -434,11 +447,13 @@ func TestPipeline_Close_WithErrors(t *testing.T) {
 	}
 
 	pipeline := &Pipeline{
-		source:    source,
-		decoder:   &MockDecoder{},
-		transform: transform,
-		sink:      sink,
-		logger:    logger.New("plain", "info"),
+		source:      source,
+		decoder:     &MockDecoder{},
+		transform:   transform,
+		sink:        sink,
+		maxAttempts: 1,
+		backoffMs:   0,
+		logger:      logger.New("plain", "info"),
 	}
 
 	err := pipeline.Close()
@@ -465,11 +480,13 @@ func TestPipeline_ContextCancellation(t *testing.T) {
 	sink := &MockSink{}
 
 	pipeline := &Pipeline{
-		source:    source,
-		decoder:   decoder,
-		transform: transform,
-		sink:      sink,
-		logger:    logger.New("plain", "info"),
+		source:      source,
+		decoder:     decoder,
+		transform:   transform,
+		sink:        sink,
+		maxAttempts: 1,
+		backoffMs:   0,
+		logger:      logger.New("plain", "info"),
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -495,11 +512,13 @@ func TestPipeline_SourceChannelClosed(t *testing.T) {
 	sink := &MockSink{}
 
 	pipeline := &Pipeline{
-		source:    source,
-		decoder:   decoder,
-		transform: transform,
-		sink:      sink,
-		logger:    logger.New("plain", "info"),
+		source:      source,
+		decoder:     decoder,
+		transform:   transform,
+		sink:        sink,
+		maxAttempts: 1,
+		backoffMs:   0,
+		logger:      logger.New("plain", "info"),
 	}
 
 	ctx := context.Background()
@@ -536,11 +555,13 @@ func TestPipeline_SourceErrorEvent(t *testing.T) {
 	sink := &MockSink{writes: []*cdc.Event{}}
 
 	pipeline := &Pipeline{
-		source:    source,
-		decoder:   decoder,
-		transform: transform,
-		sink:      sink,
-		logger:    logger.New("plain", "info"),
+		source:      source,
+		decoder:     decoder,
+		transform:   transform,
+		sink:        sink,
+		maxAttempts: 1,
+		backoffMs:   0,
+		logger:      logger.New("plain", "info"),
 	}
 
 	err := pipeline.Run(context.Background())
@@ -581,11 +602,13 @@ func TestPipeline_DecoderNilEvent(t *testing.T) {
 	sink := &MockSink{writes: []*cdc.Event{}}
 
 	pipeline := &Pipeline{
-		source:    source,
-		decoder:   decoder,
-		transform: transform,
-		sink:      sink,
-		logger:    logger.New("plain", "info"),
+		source:      source,
+		decoder:     decoder,
+		transform:   transform,
+		sink:        sink,
+		maxAttempts: 1,
+		backoffMs:   0,
+		logger:      logger.New("plain", "info"),
 	}
 
 	err := pipeline.Run(context.Background())
@@ -615,3 +638,228 @@ func (l *testLogger) WarnContext(ctx context.Context, msg string, args ...any)  
 func (l *testLogger) ErrorContext(ctx context.Context, msg string, args ...any) {}
 
 var _ logger.Logger = (*testLogger)(nil)
+
+// TestPipeline_TransformError_WithDLQ tests that transform errors route to DLQ after retries
+func TestPipeline_TransformError_WithDLQ(t *testing.T) {
+	events := make(chan cdc.RawEvent, 2)
+	events <- cdc.RawEvent{Data: map[string]any{"table": "users"}}
+	events <- cdc.RawEvent{Data: map[string]any{"table": "orders"}}
+	close(events)
+
+	source := &MockSource{events: events}
+	decoder := &MockDecoder{
+		decodeFn: func(raw cdc.RawEvent) (*cdc.Event, error) {
+			data := raw.Data.(map[string]any)
+			return &cdc.Event{
+				Source: "postgres",
+				Table:  data["table"].(string),
+				Op:     cdc.EventTypeCreate,
+				After:  map[string]any{"id": 1},
+			}, nil
+		},
+	}
+
+	transformAttempts := 0
+	transform := &MockTransform{
+		processFn: func(event *cdc.Event) (*cdc.Event, error) {
+			if event.Table == "orders" {
+				transformAttempts++
+				return nil, errors.New("transform failed")
+			}
+			return event, nil
+		},
+	}
+	primarySink := &MockSink{writes: []*cdc.Event{}}
+	dlqSink := &MockSink{writes: []*cdc.Event{}}
+
+	pipeline := &Pipeline{
+		source:      source,
+		decoder:     decoder,
+		transform:   transform,
+		sink:        primarySink,
+		dlq:         newTestDLQ(dlqSink),
+		maxAttempts: 3,
+		backoffMs:   0,
+		logger:      logger.New("plain", "info"),
+	}
+
+	err := pipeline.Run(context.Background())
+	if err != nil {
+		t.Errorf("Run() error = %v", err)
+	}
+
+	// users written to primary sink
+	if len(primarySink.writes) != 1 {
+		t.Errorf("primary sink: expected 1 event, got %d", len(primarySink.writes))
+	}
+
+	// orders should be in DLQ after 3 retry attempts
+	if transformAttempts != 3 {
+		t.Errorf("expected 3 transform attempts, got %d", transformAttempts)
+	}
+	if len(dlqSink.writes) != 1 {
+		t.Errorf("DLQ sink: expected 1 event, got %d", len(dlqSink.writes))
+	}
+	if dlqSink.writes[0].Table != "dlq" {
+		t.Errorf("DLQ event table = %q, want %q", dlqSink.writes[0].Table, "dlq")
+	}
+}
+
+// TestPipeline_SinkError_WithDLQ tests that sink errors route to DLQ after retries
+func TestPipeline_SinkError_WithDLQ(t *testing.T) {
+	events := make(chan cdc.RawEvent, 1)
+	events <- cdc.RawEvent{Data: map[string]any{"table": "users"}}
+	close(events)
+
+	source := &MockSource{events: events}
+	decoder := &MockDecoder{
+		decodeFn: func(raw cdc.RawEvent) (*cdc.Event, error) {
+			data := raw.Data.(map[string]any)
+			return &cdc.Event{
+				Source: "postgres",
+				Table:  data["table"].(string),
+				Op:     cdc.EventTypeCreate,
+				After:  map[string]any{"id": 1},
+			}, nil
+		},
+	}
+	transform := &MockTransform{}
+
+	sinkAttempts := 0
+	primarySink := &MockSink{
+		writeFn: func(ctx context.Context, event *cdc.Event) error {
+			sinkAttempts++
+			return errors.New("sink always fails")
+		},
+	}
+	dlqSink := &MockSink{writes: []*cdc.Event{}}
+
+	pipeline := &Pipeline{
+		source:      source,
+		decoder:     decoder,
+		transform:   transform,
+		sink:        primarySink,
+		dlq:         newTestDLQ(dlqSink),
+		maxAttempts: 2,
+		backoffMs:   0,
+		logger:      logger.New("plain", "info"),
+	}
+
+	err := pipeline.Run(context.Background())
+	if err != nil {
+		t.Errorf("Run() error = %v", err)
+	}
+
+	if sinkAttempts != 2 {
+		t.Errorf("expected 2 sink attempts, got %d", sinkAttempts)
+	}
+	if len(dlqSink.writes) != 1 {
+		t.Errorf("DLQ sink: expected 1 event, got %d", len(dlqSink.writes))
+	}
+}
+
+// TestPipeline_RetrySuccess tests that retry succeeds on second attempt
+func TestPipeline_RetrySuccess(t *testing.T) {
+	events := make(chan cdc.RawEvent, 1)
+	events <- cdc.RawEvent{Data: map[string]any{"table": "users"}}
+	close(events)
+
+	source := &MockSource{events: events}
+	decoder := &MockDecoder{
+		decodeFn: func(raw cdc.RawEvent) (*cdc.Event, error) {
+			data := raw.Data.(map[string]any)
+			return &cdc.Event{
+				Source: "postgres",
+				Table:  data["table"].(string),
+				Op:     cdc.EventTypeCreate,
+				After:  map[string]any{"id": 1},
+			}, nil
+		},
+	}
+	transform := &MockTransform{}
+
+	sinkAttempts := 0
+	primarySink := &MockSink{writes: []*cdc.Event{}}
+	primarySink.writeFn = func(ctx context.Context, event *cdc.Event) error {
+		sinkAttempts++
+		if sinkAttempts == 1 {
+			return errors.New("transient error")
+		}
+		primarySink.writes = append(primarySink.writes, event)
+		return nil
+	}
+
+	pipeline := &Pipeline{
+		source:      source,
+		decoder:     decoder,
+		transform:   transform,
+		sink:        primarySink,
+		maxAttempts: 3,
+		backoffMs:   0,
+		logger:      logger.New("plain", "info"),
+	}
+
+	err := pipeline.Run(context.Background())
+	if err != nil {
+		t.Errorf("Run() error = %v", err)
+	}
+
+	if sinkAttempts != 2 {
+		t.Errorf("expected 2 sink attempts (fail then succeed), got %d", sinkAttempts)
+	}
+	if len(primarySink.writes) != 1 {
+		t.Errorf("expected 1 event written after retry, got %d", len(primarySink.writes))
+	}
+}
+
+// TestPipeline_NoDLQ_LogAndSkip tests that without DLQ, errors are logged and skipped
+func TestPipeline_NoDLQ_LogAndSkip(t *testing.T) {
+	events := make(chan cdc.RawEvent, 1)
+	events <- cdc.RawEvent{Data: map[string]any{"table": "users"}}
+	close(events)
+
+	source := &MockSource{events: events}
+	decoder := &MockDecoder{
+		decodeFn: func(raw cdc.RawEvent) (*cdc.Event, error) {
+			data := raw.Data.(map[string]any)
+			return &cdc.Event{
+				Source: "postgres",
+				Table:  data["table"].(string),
+				Op:     cdc.EventTypeCreate,
+				After:  map[string]any{"id": 1},
+			}, nil
+		},
+	}
+	transform := &MockTransform{
+		processFn: func(event *cdc.Event) (*cdc.Event, error) {
+			return nil, errors.New("always fails")
+		},
+	}
+	primarySink := &MockSink{writes: []*cdc.Event{}}
+
+	pipeline := &Pipeline{
+		source:      source,
+		decoder:     decoder,
+		transform:   transform,
+		sink:        primarySink,
+		dlq:         nil, // No DLQ
+		maxAttempts: 2,
+		backoffMs:   0,
+		logger:      logger.New("plain", "info"),
+	}
+
+	err := pipeline.Run(context.Background())
+	if err != nil {
+		t.Errorf("Run() error = %v", err)
+	}
+
+	// No events in primary sink (all failed)
+	if len(primarySink.writes) != 0 {
+		t.Errorf("expected 0 events in primary sink, got %d", len(primarySink.writes))
+	}
+}
+
+// newTestDLQ creates a DLQ instance for testing using the dlq package
+func newTestDLQ(sink cdc.Sink) *dlq.DLQ {
+	return dlq.NewDLQ(sink)
+}

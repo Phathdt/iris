@@ -50,6 +50,23 @@ sink:
 #     users: cdc:users
 #     orders: cdc:orders
 
+# Dead Letter Queue (optional)
+# Events failing transform or sink after retries are sent here
+# dlq:
+#   enabled: true
+#   sink:
+#     type: redis
+#     addr: localhost:6379
+#     key: cdc:dlq
+#     max_len: 10000
+#   # Note: For kafka/redis_stream DLQ sinks, events go to default destinations
+#   # (cdc.dlq for kafka, cdc:dlq for redis_stream) since DLQ has no table mapping.
+
+# Retry configuration (optional)
+# retry:
+#   max_attempts: 3    # Default: 3
+#   backoff_ms: 100    # Default: 100ms between retries
+
 # Logger configuration (optional)
 # If not specified, defaults to format: "text", level: "info"
 logger:

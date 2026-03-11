@@ -31,6 +31,23 @@ type Config struct {
 	Sink      SinkConfig       `yaml:"sink"`
 	Mapping   MappingConfig    `yaml:"mapping,omitempty"`
 	Logger    LoggerConfig     `yaml:"logger,omitempty"`
+	DLQ       *DLQConfig       `yaml:"dlq,omitempty"`
+	Retry     RetryConfig      `yaml:"retry,omitempty"`
+}
+
+// DLQConfig holds the dead letter queue configuration
+type DLQConfig struct {
+	// Enabled enables the DLQ sink for failed events
+	Enabled bool       `yaml:"enabled"`
+	Sink    SinkConfig `yaml:"sink"`
+}
+
+// RetryConfig holds retry settings for transform and sink operations
+type RetryConfig struct {
+	// MaxAttempts is the maximum number of attempts before sending to DLQ (default: 3)
+	MaxAttempts int `yaml:"max_attempts,omitempty"`
+	// BackoffMs is the delay between retries in milliseconds (default: 100)
+	BackoffMs int `yaml:"backoff_ms,omitempty"`
 }
 
 // MappingConfig holds table-to-stream routing configuration
@@ -137,6 +154,14 @@ func Load(path string) (*Config, error) {
 		cfg.Logger.Format = "text"
 	}
 
+	// Set default retry config
+	if cfg.Retry.MaxAttempts <= 0 {
+		cfg.Retry.MaxAttempts = 3
+	}
+	if cfg.Retry.BackoffMs <= 0 {
+		cfg.Retry.BackoffMs = 100
+	}
+
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("validate config: %w", err)
 	}
@@ -168,25 +193,40 @@ func (c *Config) Validate() error {
 	}
 
 	// Validate sink (per-type validation)
-	switch c.Sink.Type {
-	case "redis":
-		if c.Sink.Addr == "" {
-			return fmt.Errorf("sink.addr is required for redis sink")
-		}
-		if c.Sink.Key == "" {
-			return fmt.Errorf("sink.key is required for redis list sink")
-		}
-	case "redis_stream":
-		if c.Sink.Addr == "" {
-			return fmt.Errorf("sink.addr is required for redis_stream sink")
-		}
-	case "kafka":
-		if len(c.Sink.Brokers) == 0 {
-			return fmt.Errorf("sink.brokers is required for kafka sink")
-		}
-	default:
-		return fmt.Errorf("unsupported sink type: %s", c.Sink.Type)
+	if err := validateSink(c.Sink, "sink"); err != nil {
+		return err
 	}
 
+	// Validate DLQ sink if enabled
+	if c.DLQ != nil && c.DLQ.Enabled {
+		if err := validateSink(c.DLQ.Sink, "dlq.sink"); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validateSink validates a sink configuration with a given prefix for error messages
+func validateSink(s SinkConfig, prefix string) error {
+	switch s.Type {
+	case "redis":
+		if s.Addr == "" {
+			return fmt.Errorf("%s.addr is required for redis sink", prefix)
+		}
+		if s.Key == "" {
+			return fmt.Errorf("%s.key is required for redis list sink", prefix)
+		}
+	case "redis_stream":
+		if s.Addr == "" {
+			return fmt.Errorf("%s.addr is required for redis_stream sink", prefix)
+		}
+	case "kafka":
+		if len(s.Brokers) == 0 {
+			return fmt.Errorf("%s.brokers is required for kafka sink", prefix)
+		}
+	default:
+		return fmt.Errorf("unsupported %s type: %s", prefix, s.Type)
+	}
 	return nil
 }

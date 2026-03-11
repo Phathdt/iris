@@ -277,10 +277,35 @@ func TestIntegration_CrossRuntime_IdenticalBehavior(t *testing.T) {
 	defer tinygoTransform.Close()
 
 	events := []*cdc.Event{
-		{Source: "postgres", Table: "users", Op: cdc.EventTypeCreate, TS: time.Now(), After: map[string]any{"id": float64(1)}},
-		{Source: "postgres", Table: "audit_logs", Op: cdc.EventTypeCreate, TS: time.Now(), After: map[string]any{"id": float64(2)}},
-		{Source: "postgres", Table: "orders", Op: cdc.EventTypeUpdate, TS: time.Now(), Before: map[string]any{"status": "pending"}, After: map[string]any{"status": "done"}},
-		{Source: "postgres", Table: "sessions", Op: cdc.EventTypeDelete, TS: time.Now(), Before: map[string]any{"id": float64(3)}},
+		{
+			Source: "postgres",
+			Table:  "users",
+			Op:     cdc.EventTypeCreate,
+			TS:     time.Now(),
+			After:  map[string]any{"id": float64(1)},
+		},
+		{
+			Source: "postgres",
+			Table:  "audit_logs",
+			Op:     cdc.EventTypeCreate,
+			TS:     time.Now(),
+			After:  map[string]any{"id": float64(2)},
+		},
+		{
+			Source: "postgres",
+			Table:  "orders",
+			Op:     cdc.EventTypeUpdate,
+			TS:     time.Now(),
+			Before: map[string]any{"status": "pending"},
+			After:  map[string]any{"status": "done"},
+		},
+		{
+			Source: "postgres",
+			Table:  "sessions",
+			Op:     cdc.EventTypeDelete,
+			TS:     time.Now(),
+			Before: map[string]any{"id": float64(3)},
+		},
 	}
 
 	for i, event := range events {
@@ -295,7 +320,13 @@ func TestIntegration_CrossRuntime_IdenticalBehavior(t *testing.T) {
 
 		// Both should have same nil/non-nil result
 		if (rustResult == nil) != (tinygoResult == nil) {
-			t.Errorf("event %d (%s): Rust result nil=%v, TinyGo result nil=%v", i, event.Table, rustResult == nil, tinygoResult == nil)
+			t.Errorf(
+				"event %d (%s): Rust result nil=%v, TinyGo result nil=%v",
+				i,
+				event.Table,
+				rustResult == nil,
+				tinygoResult == nil,
+			)
 			continue
 		}
 

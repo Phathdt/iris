@@ -556,6 +556,185 @@ sink:
 	}
 }
 
+func TestValidate_DLQ_Valid(t *testing.T) {
+	cfg := &Config{
+		Source: SourceConfig{
+			Type:     "postgres",
+			DSN:      "postgres://localhost:5432/testdb",
+			SlotName: "test_slot",
+		},
+		Sink: SinkConfig{
+			Type: "redis",
+			Addr: "localhost:6379",
+			Key:  "cdc:events",
+		},
+		DLQ: &DLQConfig{
+			Enabled: true,
+			Sink: SinkConfig{
+				Type: "redis",
+				Addr: "localhost:6379",
+				Key:  "cdc:dlq",
+			},
+		},
+	}
+
+	err := cfg.Validate()
+	if err != nil {
+		t.Errorf("Validate() error = %v, want nil for valid DLQ config", err)
+	}
+}
+
+func TestValidate_DLQ_MissingSinkType(t *testing.T) {
+	cfg := &Config{
+		Source: SourceConfig{
+			Type:     "postgres",
+			DSN:      "postgres://localhost:5432/testdb",
+			SlotName: "test_slot",
+		},
+		Sink: SinkConfig{
+			Type: "redis",
+			Addr: "localhost:6379",
+			Key:  "cdc:events",
+		},
+		DLQ: &DLQConfig{
+			Enabled: true,
+			Sink:    SinkConfig{Type: "rabbitmq"},
+		},
+	}
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() expected error for unsupported DLQ sink type, got nil")
+	}
+	if !contains(err.Error(), "dlq.sink") {
+		t.Errorf("Validate() error = %v, should contain 'dlq.sink'", err)
+	}
+}
+
+func TestValidate_DLQ_Disabled_NoValidation(t *testing.T) {
+	cfg := &Config{
+		Source: SourceConfig{
+			Type:     "postgres",
+			DSN:      "postgres://localhost:5432/testdb",
+			SlotName: "test_slot",
+		},
+		Sink: SinkConfig{
+			Type: "redis",
+			Addr: "localhost:6379",
+			Key:  "cdc:events",
+		},
+		DLQ: &DLQConfig{
+			Enabled: false,
+			Sink:    SinkConfig{}, // Invalid but shouldn't matter when disabled
+		},
+	}
+
+	err := cfg.Validate()
+	if err != nil {
+		t.Errorf("Validate() error = %v, want nil (DLQ disabled)", err)
+	}
+}
+
+func TestValidate_NoDLQ_BackwardCompat(t *testing.T) {
+	cfg := &Config{
+		Source: SourceConfig{
+			Type:     "postgres",
+			DSN:      "postgres://localhost:5432/testdb",
+			SlotName: "test_slot",
+		},
+		Sink: SinkConfig{
+			Type: "redis",
+			Addr: "localhost:6379",
+			Key:  "cdc:events",
+		},
+		// DLQ is nil — backward compatible
+	}
+
+	err := cfg.Validate()
+	if err != nil {
+		t.Errorf("Validate() error = %v, want nil (no DLQ = backward compat)", err)
+	}
+}
+
+func TestLoad_RetryDefaults(t *testing.T) {
+	content := `
+source:
+  type: postgres
+  dsn: postgres://localhost:5432/testdb
+  slot_name: test_slot
+sink:
+  type: redis
+  addr: localhost:6379
+  key: cdc:events
+`
+	tmpFile := createTempFile(t, content)
+	defer os.Remove(tmpFile)
+
+	cfg, err := Load(tmpFile)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.Retry.MaxAttempts != 3 {
+		t.Errorf("Retry.MaxAttempts = %d, want 3 (default)", cfg.Retry.MaxAttempts)
+	}
+	if cfg.Retry.BackoffMs != 100 {
+		t.Errorf("Retry.BackoffMs = %d, want 100 (default)", cfg.Retry.BackoffMs)
+	}
+}
+
+func TestLoad_DLQ_YAML(t *testing.T) {
+	content := `
+source:
+  type: postgres
+  dsn: postgres://localhost:5432/testdb
+  slot_name: test_slot
+sink:
+  type: redis
+  addr: localhost:6379
+  key: cdc:events
+dlq:
+  enabled: true
+  sink:
+    type: redis
+    addr: localhost:6379
+    key: cdc:dlq
+    max_len: 5000
+retry:
+  max_attempts: 5
+  backoff_ms: 200
+`
+	tmpFile := createTempFile(t, content)
+	defer os.Remove(tmpFile)
+
+	cfg, err := Load(tmpFile)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.DLQ == nil {
+		t.Fatal("DLQ is nil")
+	}
+	if !cfg.DLQ.Enabled {
+		t.Error("DLQ.Enabled should be true")
+	}
+	if cfg.DLQ.Sink.Type != "redis" {
+		t.Errorf("DLQ.Sink.Type = %q, want %q", cfg.DLQ.Sink.Type, "redis")
+	}
+	if cfg.DLQ.Sink.Key != "cdc:dlq" {
+		t.Errorf("DLQ.Sink.Key = %q, want %q", cfg.DLQ.Sink.Key, "cdc:dlq")
+	}
+	if cfg.DLQ.Sink.MaxLen != 5000 {
+		t.Errorf("DLQ.Sink.MaxLen = %d, want 5000", cfg.DLQ.Sink.MaxLen)
+	}
+	if cfg.Retry.MaxAttempts != 5 {
+		t.Errorf("Retry.MaxAttempts = %d, want 5", cfg.Retry.MaxAttempts)
+	}
+	if cfg.Retry.BackoffMs != 200 {
+		t.Errorf("Retry.BackoffMs = %d, want 200", cfg.Retry.BackoffMs)
+	}
+}
+
 // Helper function to create a temporary file with content
 func createTempFile(t *testing.T, content string) string {
 	t.Helper()
