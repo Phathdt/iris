@@ -100,15 +100,18 @@ func (p *Pipeline) Run(ctx context.Context) error {
 	p.logger.Info("replication started, processing events")
 
 	// Process events loop
+	var loopErr error
+loop:
 	for {
 		select {
 		case <-ctx.Done():
 			p.logger.Info("context cancelled, stopping pipeline")
-			return ctx.Err()
+			loopErr = ctx.Err()
+			break loop
 		case raw, ok := <-rawEvents:
 			if !ok {
 				p.logger.Info("source channel closed")
-				return nil
+				break loop
 			}
 
 			// Handle error events from source
@@ -152,9 +155,19 @@ func (p *Pipeline) Run(ctx context.Context) error {
 				continue
 			}
 
+			// 4. Ack offset to source (advances PG replication slot's confirmed_flush_lsn).
+			//    PG persists this server-side, so no external offset store needed for PG sources.
+			if event.Offset != nil {
+				if err := p.source.Ack(*event.Offset); err != nil {
+					p.logger.Warn("ack error", "error", err)
+				}
+			}
+
 			p.logger.Debug("event written to sink", "table", event.Table, "op", event.Op)
 		}
-	}
+	} // end loop
+
+	return loopErr
 }
 
 // Close cleans up all pipeline resources

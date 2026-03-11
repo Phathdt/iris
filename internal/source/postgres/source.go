@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 
 	"iris/pkg/cdc"
 
@@ -18,6 +19,10 @@ type PostgresSource struct {
 	replConn *pgconn.PgConn
 	events   chan cdc.RawEvent
 	slotName string
+
+	// lastAckedLSN tracks the last LSN confirmed to PG via Ack().
+	// Used by keepalive handler to avoid advancing the slot past unprocessed events.
+	lastAckedLSN atomic.Uint64
 }
 
 // NewSource creates a new PostgreSQL source
@@ -53,19 +58,15 @@ func (s *PostgresSource) Start(ctx context.Context) (<-chan cdc.RawEvent, error)
 		return nil, fmt.Errorf("failed to create replication slot: %w", err)
 	}
 
-	// Determine start LSN
+	// Determine start LSN.
+	// Use explicit StartOffset if provided, otherwise pass LSN(0) so PG resumes
+	// from the slot's confirmed_flush_lsn automatically.
 	var startLSN pglogrepl.LSN
 	if s.config.StartOffset != nil && !s.config.StartOffset.IsZero() {
 		startLSN = pglogrepl.LSN(s.config.StartOffset.LSN)
-	} else {
-		// Get current WAL position
-		sysID, err := pglogrepl.IdentifySystem(ctx, s.replConn)
-		if err != nil {
-			s.replConn.Close(ctx)
-			return nil, fmt.Errorf("failed to identify system: %w", err)
-		}
-		startLSN = sysID.XLogPos
 	}
+	// When startLSN is 0, PG uses confirmed_flush_lsn from the replication slot.
+	// This is the correct behavior for resuming after restart.
 
 	// Start logical replication with pgoutput plugin
 	err = pglogrepl.StartReplication(
@@ -162,11 +163,12 @@ func (s *PostgresSource) receiveWALMessages(ctx context.Context) {
 						continue
 					}
 
-					// Send as raw event
+					// Send as raw event with LSN for offset tracking
 					s.events <- cdc.RawEvent{
 						Data: logicalMsg,
 						Meta: map[string]string{
 							"type": fmt.Sprintf("%T", logicalMsg),
+							"lsn":  fmt.Sprintf("%d", uint64(xld.WALStart)),
 						},
 					}
 
@@ -175,13 +177,15 @@ func (s *PostgresSource) receiveWALMessages(ctx context.Context) {
 					if err != nil {
 						continue
 					}
-					// Reply to keepalive if requested to keep the connection alive
+					// Reply to keepalive using the last acked LSN, not ServerWALEnd.
+					// Using ServerWALEnd would advance the slot past events we haven't processed yet.
 					if pkm.ReplyRequested {
+						replyLSN := pglogrepl.LSN(s.lastAckedLSN.Load())
 						pglogrepl.SendStandbyStatusUpdate(
 							ctx,
 							s.replConn,
 							pglogrepl.StandbyStatusUpdate{
-								WALWritePosition: pkm.ServerWALEnd,
+								WALWritePosition: replyLSN,
 							},
 						)
 					}
@@ -191,13 +195,18 @@ func (s *PostgresSource) receiveWALMessages(ctx context.Context) {
 	}
 }
 
-// Ack acknowledges the processed offset by sending standby status update
+// Ack acknowledges the processed offset by sending standby status update.
+// This advances the replication slot's confirmed_flush_lsn in PostgreSQL,
+// which is persisted server-side and used to resume on reconnect.
 func (s *PostgresSource) Ack(offset cdc.Offset) error {
 	if s.replConn == nil {
 		return fmt.Errorf("connection not initialized")
 	}
 
-	// Send standby status update to advance restart_lsn
+	// Track last acked LSN for keepalive replies
+	s.lastAckedLSN.Store(offset.LSN)
+
+	// Send standby status update to advance confirmed_flush_lsn
 	return pglogrepl.SendStandbyStatusUpdate(
 		context.Background(),
 		s.replConn,

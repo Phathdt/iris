@@ -36,6 +36,9 @@ type Event struct {
 
 	// Raw holds source-specific metadata (WAL LSN, binlog position, etc.)
 	Raw any `json:"-"`
+
+	// Offset is the source position of this event (not serialized to sinks).
+	Offset *Offset `json:"-"`
 }
 
 // MarshalJSON implements custom JSON marshaling for Event

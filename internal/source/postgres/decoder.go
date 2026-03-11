@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 
 	"iris/pkg/cdc"
@@ -29,38 +30,66 @@ func (d *PostgresDecoder) Decode(raw cdc.RawEvent) (*cdc.Event, error) {
 		return nil, fmt.Errorf("unexpected message type: %T", raw.Data)
 	}
 
+	var event *cdc.Event
+	var err error
+
 	// Handle different message types based on pgoutput protocol
 	switch m := msg.(type) {
 	case *pglogrepl.RelationMessage:
 		// Cache relation schema info
 		d.relations[m.RelationID] = m
-		return nil, nil // Relation messages are cached, not emitted as events
+		return nil, nil
 
 	case *pglogrepl.BeginMessage:
-		// Transaction start - can be used for batching
 		return nil, nil
 
 	case *pglogrepl.CommitMessage:
-		// Store commit time for subsequent operation messages
 		d.commitTime = m.CommitTime
 		return nil, nil
 
 	case *pglogrepl.InsertMessage:
-		return d.parseInsert(m)
+		event, err = d.parseInsert(m)
 
 	case *pglogrepl.UpdateMessage:
-		return d.parseUpdate(m)
+		event, err = d.parseUpdate(m)
 
 	case *pglogrepl.DeleteMessage:
-		return d.parseDelete(m)
+		event, err = d.parseDelete(m)
 
 	case *pglogrepl.TruncateMessage:
-		// TRUNCATE is not typically needed for CDC
 		return nil, nil
 
 	default:
 		return nil, fmt.Errorf("unknown message type: %T", msg)
 	}
+
+	if err != nil || event == nil {
+		return event, err
+	}
+
+	// Attach source offset to event
+	event.Offset = extractOffset(raw.Meta)
+	if event.Offset != nil {
+		event.Offset.CommitTime = d.commitTime
+	}
+
+	return event, nil
+}
+
+// extractOffset reads the LSN from RawEvent.Meta if present.
+func extractOffset(meta map[string]string) *cdc.Offset {
+	if meta == nil {
+		return nil
+	}
+	lsnStr, ok := meta["lsn"]
+	if !ok || lsnStr == "" {
+		return nil
+	}
+	lsn, err := strconv.ParseUint(lsnStr, 10, 64)
+	if err != nil {
+		return nil
+	}
+	return &cdc.Offset{LSN: lsn}
 }
 
 // parseInsert handles INSERT operations
