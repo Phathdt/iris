@@ -3,6 +3,7 @@ package sink
 import (
 	"fmt"
 
+	"iris/internal/sink/kafka"
 	"iris/internal/sink/redis"
 	"iris/pkg/cdc"
 )
@@ -10,13 +11,15 @@ import (
 // Config holds sink configuration
 type Config struct {
 	Type            string
-	Addr            string
-	Password        string
-	DB              int
+	Addr            string            // For Redis
+	Password        string            // For Redis
+	DB              int               // For Redis
 	Key             string            // For Redis List
 	TableStreamMap  map[string]string // For Redis Stream
-	MaxLen          int
-	ApproximateTrim bool
+	MaxLen          int               // For Redis
+	ApproximateTrim bool              // For Redis Stream
+	Brokers         []string          // For Kafka
+	TableTopicMap   map[string]string // For Kafka
 }
 
 // SinkBuilder is a function that creates a sink from config
@@ -36,6 +39,7 @@ func NewFactory() *SinkRegistry {
 	// Register built-in sink types
 	r.Register("redis", buildRedisListSink)
 	r.Register("redis_stream", buildRedisStreamSink)
+	r.Register("kafka", buildKafkaSink)
 
 	return r
 }
@@ -74,5 +78,13 @@ func buildRedisStreamSink(cfg Config) (cdc.Sink, error) {
 		TableStreamMap:  cfg.TableStreamMap,
 		MaxLen:          cfg.MaxLen,
 		ApproximateTrim: cfg.ApproximateTrim,
+	})
+}
+
+// buildKafkaSink creates a Kafka sink
+func buildKafkaSink(cfg Config) (cdc.Sink, error) {
+	return kafka.NewKafkaSink(kafka.Config{
+		Brokers:       cfg.Brokers,
+		TableTopicMap: cfg.TableTopicMap,
 	})
 }

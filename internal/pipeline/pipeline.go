@@ -67,6 +67,8 @@ func NewPipeline(cfg config.Config, log logger.Logger) (*Pipeline, error) {
 		TableStreamMap:  cfg.Mapping.TableStreamMap,
 		MaxLen:          cfg.Sink.MaxLen,
 		ApproximateTrim: cfg.Sink.ApproximateTrim,
+		Brokers:         cfg.Sink.Brokers,
+		TableTopicMap:   cfg.Mapping.TableStreamMap,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create sink: %w", err)

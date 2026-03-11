@@ -112,6 +112,9 @@ type SinkConfig struct {
 	// ApproximateTrim uses ~MAXLEN for better performance (default: false)
 	// Only used when type="redis_stream"
 	ApproximateTrim bool `yaml:"approximate_trim,omitempty"`
+
+	// Brokers is the list of Kafka broker addresses (used when type="kafka")
+	Brokers []string `yaml:"brokers,omitempty"`
 }
 
 // Load loads configuration from a YAML file
@@ -164,17 +167,23 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	// Validate sink
-	if c.Sink.Addr == "" {
-		return fmt.Errorf("sink.addr is required")
-	}
+	// Validate sink (per-type validation)
 	switch c.Sink.Type {
 	case "redis":
+		if c.Sink.Addr == "" {
+			return fmt.Errorf("sink.addr is required for redis sink")
+		}
 		if c.Sink.Key == "" {
 			return fmt.Errorf("sink.key is required for redis list sink")
 		}
 	case "redis_stream":
-		// TableStreamMap is optional - defaults to "cdc:{table}" if not provided
+		if c.Sink.Addr == "" {
+			return fmt.Errorf("sink.addr is required for redis_stream sink")
+		}
+	case "kafka":
+		if len(c.Sink.Brokers) == 0 {
+			return fmt.Errorf("sink.brokers is required for kafka sink")
+		}
 	default:
 		return fmt.Errorf("unsupported sink type: %s", c.Sink.Type)
 	}

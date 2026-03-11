@@ -35,9 +35,16 @@ sink:
   max_len: 10000                    # Trim stream to max length (0 = no trimming)
   # approximate_trim: false         # Optional: use ~MAXLEN for better performance
 
+  # Option 3: Kafka sink
+  # type: kafka
+  # brokers:
+  #   - localhost:9092
+  # # Uses mapping.table_stream_map for topic routing (defaults to "cdc.{table}")
+
 # Mapping configuration (optional)
-# Maps source tables to sink stream keys (used when sink.type="redis_stream")
-# If omitted, defaults to "cdc:{table}" for each source table
+# Maps source tables to destination keys/topics
+# Used by redis_stream (stream keys) and kafka (topic names)
+# If omitted, defaults to "cdc:{table}" (redis) or "cdc.{table}" (kafka)
 # mapping:
 #   table_stream_map:
 #     users: cdc:users

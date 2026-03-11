@@ -220,8 +220,8 @@ func TestValidate_MissingSinkAddress(t *testing.T) {
 		t.Fatal("Validate() expected error for missing sink address, got nil")
 	}
 
-	if err.Error() != "sink.addr is required" {
-		t.Errorf("Validate() error = %v, want 'sink.addr is required'", err)
+	if err.Error() != "sink.addr is required for redis sink" {
+		t.Errorf("Validate() error = %v, want 'sink.addr is required for redis sink'", err)
 	}
 }
 
@@ -280,8 +280,8 @@ func TestValidate_UnsupportedSinkType(t *testing.T) {
 			SlotName: "test_slot",
 		},
 		Sink: SinkConfig{
-			Type: "kafka",
-			Addr: "localhost:9092",
+			Type: "rabbitmq",
+			Addr: "localhost:5672",
 		},
 	}
 
@@ -290,8 +290,48 @@ func TestValidate_UnsupportedSinkType(t *testing.T) {
 		t.Fatal("Validate() expected error for unsupported sink type, got nil")
 	}
 
-	if err.Error() != "unsupported sink type: kafka" {
-		t.Errorf("Validate() error = %v, want 'unsupported sink type: kafka'", err)
+	if err.Error() != "unsupported sink type: rabbitmq" {
+		t.Errorf("Validate() error = %v, want 'unsupported sink type: rabbitmq'", err)
+	}
+}
+
+func TestValidate_Kafka_ValidConfig(t *testing.T) {
+	cfg := &Config{
+		Source: SourceConfig{
+			Type:     "postgres",
+			DSN:      "postgres://localhost:5432/testdb",
+			SlotName: "test_slot",
+		},
+		Sink: SinkConfig{
+			Type:    "kafka",
+			Brokers: []string{"localhost:9092"},
+		},
+	}
+
+	err := cfg.Validate()
+	if err != nil {
+		t.Errorf("Validate() error = %v, want nil for valid kafka config", err)
+	}
+}
+
+func TestValidate_Kafka_MissingBrokers(t *testing.T) {
+	cfg := &Config{
+		Source: SourceConfig{
+			Type:     "postgres",
+			DSN:      "postgres://localhost:5432/testdb",
+			SlotName: "test_slot",
+		},
+		Sink: SinkConfig{
+			Type: "kafka",
+		},
+	}
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() expected error for missing brokers, got nil")
+	}
+	if err.Error() != "sink.brokers is required for kafka sink" {
+		t.Errorf("Validate() error = %v, want 'sink.brokers is required for kafka sink'", err)
 	}
 }
 
@@ -460,8 +500,8 @@ func TestValidate_RedisStream_MissingAddr(t *testing.T) {
 	if err == nil {
 		t.Fatal("Validate() expected error for missing addr, got nil")
 	}
-	if err.Error() != "sink.addr is required" {
-		t.Errorf("Validate() error = %v, want 'sink.addr is required'", err)
+	if err.Error() != "sink.addr is required for redis_stream sink" {
+		t.Errorf("Validate() error = %v, want 'sink.addr is required for redis_stream sink'", err)
 	}
 }
 
