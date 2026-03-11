@@ -12,6 +12,7 @@ import (
 	"iris/internal/pipeline"
 	"iris/pkg/config"
 	"iris/pkg/logger"
+	"iris/pkg/observability"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/redis/go-redis/v9"
@@ -99,7 +100,7 @@ func TestE2E_PostgresToRedis_Basic(t *testing.T) {
 	}
 
 	// 2. Create pipeline
-	p, err := pipeline.NewPipeline(cfg, logger.New("plain", "info"))
+	p, err := pipeline.NewPipeline(cfg, logger.New("plain", "info"), observability.NewNoopMetrics())
 	if err != nil {
 		t.Fatalf("failed to create pipeline: %v", err)
 	}
@@ -188,7 +189,7 @@ func TestE2E_UpdateOperation(t *testing.T) {
 		},
 	}
 
-	p, err := pipeline.NewPipeline(cfg, logger.New("plain", "info"))
+	p, err := pipeline.NewPipeline(cfg, logger.New("plain", "info"), observability.NewNoopMetrics())
 	if err != nil {
 		t.Fatalf("failed to create pipeline: %v", err)
 	}
@@ -296,7 +297,7 @@ func TestE2E_DeleteOperation(t *testing.T) {
 		},
 	}
 
-	p, err := pipeline.NewPipeline(cfg, logger.New("plain", "info"))
+	p, err := pipeline.NewPipeline(cfg, logger.New("plain", "info"), observability.NewNoopMetrics())
 	if err != nil {
 		t.Fatalf("failed to create pipeline: %v", err)
 	}
@@ -397,7 +398,7 @@ func TestE2E_MultipleTables(t *testing.T) {
 		},
 	}
 
-	p, err := pipeline.NewPipeline(cfg, logger.New("plain", "info"))
+	p, err := pipeline.NewPipeline(cfg, logger.New("plain", "info"), observability.NewNoopMetrics())
 	if err != nil {
 		t.Fatalf("failed to create pipeline: %v", err)
 	}
@@ -514,7 +515,7 @@ func TestE2E_PostgresToRedisStream_Basic(t *testing.T) {
 	}
 
 	// 2. Create pipeline
-	p, err := pipeline.NewPipeline(cfg, logger.New("plain", "info"))
+	p, err := pipeline.NewPipeline(cfg, logger.New("plain", "info"), observability.NewNoopMetrics())
 	if err != nil {
 		t.Fatalf("failed to create pipeline: %v", err)
 	}
@@ -615,7 +616,7 @@ func TestE2E_RedisStream_MaxLen(t *testing.T) {
 		},
 	}
 
-	p, err := pipeline.NewPipeline(cfg, logger.New("plain", "info"))
+	p, err := pipeline.NewPipeline(cfg, logger.New("plain", "info"), observability.NewNoopMetrics())
 	if err != nil {
 		t.Fatalf("failed to create pipeline: %v", err)
 	}

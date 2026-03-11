@@ -14,6 +14,12 @@ import (
 	"iris/pkg/cdc"
 	"iris/pkg/config"
 	"iris/pkg/logger"
+	"iris/pkg/observability"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Pipeline wires all CDC components together
@@ -26,10 +32,12 @@ type Pipeline struct {
 	maxAttempts int
 	backoffMs   int
 	logger      logger.Logger
+	metrics     observability.Metrics
+	tracer      trace.Tracer
 }
 
 // NewPipeline creates a new pipeline with all components wired together
-func NewPipeline(cfg config.Config, log logger.Logger) (*Pipeline, error) {
+func NewPipeline(cfg config.Config, log logger.Logger, metrics observability.Metrics) (*Pipeline, error) {
 	// Create logger with pipeline group
 	logger := log.WithGroup("pipeline")
 
@@ -124,6 +132,8 @@ func NewPipeline(cfg config.Config, log logger.Logger) (*Pipeline, error) {
 		maxAttempts: maxAttempts,
 		backoffMs:   backoffMs,
 		logger:      logger,
+		metrics:     metrics,
+		tracer:      otel.Tracer("iris.pipeline"),
 	}, nil
 }
 
@@ -177,50 +187,95 @@ loop:
 				"op", event.Op,
 			)
 
-			// 2. Transform with retry
+			// Record replication lag from event timestamp
+			if !event.TS.IsZero() {
+				lag := time.Since(event.TS).Seconds()
+				p.metrics.SetReplicationLag(lag)
+			}
+
+			// Start root trace span for this event
+			eventCtx, eventSpan := p.tracer.Start(ctx, "pipeline.process_event",
+				trace.WithAttributes(
+					attribute.String("table", event.Table),
+					attribute.String("op", string(event.Op)),
+				),
+			)
+
+			// 2. Transform with retry (time first attempt only)
 			var transformed *cdc.Event
 			var lastErr error
+			_, tSpan := p.tracer.Start(eventCtx, "transform.process")
 			for attempt := 1; attempt <= p.maxAttempts; attempt++ {
+				transformStart := time.Now()
 				transformed, lastErr = p.transform.Process(event)
+				if attempt == 1 {
+					p.metrics.ObserveTransformDuration(time.Since(transformStart).Seconds())
+				}
 				if lastErr == nil {
 					break
 				}
 				p.logger.Warn("transform error", "error", lastErr, "attempt", attempt)
 				if attempt < p.maxAttempts {
 					if err := p.sleepWithContext(ctx, p.backoffMs); err != nil {
+						tSpan.End()
+						eventSpan.End()
 						loopErr = ctx.Err()
 						break loop
 					}
 				}
 			}
 			if lastErr != nil {
+				tSpan.RecordError(lastErr)
+				tSpan.SetStatus(codes.Error, lastErr.Error())
+				tSpan.End()
+				p.metrics.IncPipelineErrors("transform", "retry_exhausted")
+				eventSpan.RecordError(lastErr)
+				eventSpan.SetStatus(codes.Error, lastErr.Error())
+				eventSpan.End()
 				p.sendToDLQ(ctx, event, lastErr, "transform")
 				continue
 			}
+			tSpan.End()
 			if transformed == nil {
 				p.logger.Debug("event dropped by transform")
+				eventSpan.End()
 				continue
 			}
 
-			// 3. Write to sink with retry
+			// 3. Write to sink with retry (time first attempt only)
 			lastErr = nil
+			sinkCtx, sSpan := p.tracer.Start(eventCtx, "sink.write")
 			for attempt := 1; attempt <= p.maxAttempts; attempt++ {
-				lastErr = p.sink.Write(ctx, transformed)
+				sinkStart := time.Now()
+				lastErr = p.sink.Write(sinkCtx, transformed)
+				if attempt == 1 {
+					p.metrics.ObserveSinkWriteDuration(time.Since(sinkStart).Seconds())
+				}
 				if lastErr == nil {
 					break
 				}
 				p.logger.Warn("sink write error", "error", lastErr, "attempt", attempt)
 				if attempt < p.maxAttempts {
 					if err := p.sleepWithContext(ctx, p.backoffMs); err != nil {
+						sSpan.End()
+						eventSpan.End()
 						loopErr = ctx.Err()
 						break loop
 					}
 				}
 			}
 			if lastErr != nil {
+				sSpan.RecordError(lastErr)
+				sSpan.SetStatus(codes.Error, lastErr.Error())
+				sSpan.End()
+				p.metrics.IncPipelineErrors("sink", "retry_exhausted")
+				eventSpan.RecordError(lastErr)
+				eventSpan.SetStatus(codes.Error, lastErr.Error())
+				eventSpan.End()
 				p.sendToDLQ(ctx, event, lastErr, "sink")
 				continue
 			}
+			sSpan.End()
 
 			// 4. Ack offset to source (advances PG replication slot's confirmed_flush_lsn).
 			//    PG persists this server-side, so no external offset store needed for PG sources.
@@ -232,6 +287,10 @@ loop:
 				}
 			}
 
+			// Record successful event processing
+			p.metrics.IncEventsProcessed(event.Table, string(event.Op), "success")
+			eventSpan.End()
+
 			p.logger.Debug("event written to sink", "table", event.Table, "op", event.Op)
 		}
 	} // end loop
@@ -241,6 +300,7 @@ loop:
 
 // sendToDLQ sends a failed event to the DLQ sink, or logs and drops if DLQ is disabled
 func (p *Pipeline) sendToDLQ(ctx context.Context, event *cdc.Event, err error, stage string) {
+	p.metrics.IncPipelineErrors(stage, "dlq")
 	if p.dlq != nil {
 		if dlqErr := p.dlq.Send(ctx, event, err, stage, p.maxAttempts); dlqErr != nil {
 			p.logger.Error("DLQ write failed, dropping event",
