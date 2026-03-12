@@ -72,3 +72,17 @@ sink:
 logger:
   format: text    # Options: "text" (colored), "json", "plain" (no colors)
   level: info     # Options: "debug", "info", "warn", "error"
+
+# Observability configuration (optional)
+# observability:
+#   metrics:
+#     enabled: true
+#     port: 9090           # Default: 9090
+#     bind: "0.0.0.0"      # Default: 0.0.0.0 (all interfaces)
+#   tracing:
+#     enabled: false
+#     endpoint: localhost:4317  # OTLP/gRPC endpoint
+#     service_name: iris        # OTel service name
+#     sample_rate: 1.0          # Trace sampling rate (0.0-1.0)
+#     # Note: Uses insecure gRPC by default. For production with TLS,
+#     # configure your OTLP collector endpoint accordingly.

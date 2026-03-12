@@ -9,6 +9,9 @@ import (
 	"iris/pkg/cdc"
 	"iris/pkg/config"
 	"iris/pkg/logger"
+	"iris/pkg/observability"
+
+	"go.opentelemetry.io/otel"
 )
 
 // MockSource is a test implementation of cdc.Source
@@ -113,7 +116,7 @@ func TestNewPipeline_ValidConfig(t *testing.T) {
 
 	// Pipeline creation will fail without actual DB connections
 	// This is expected behavior - the test verifies error handling
-	_, err := NewPipeline(cfg, logger.New("plain", "info"))
+	_, err := NewPipeline(cfg, logger.New("plain", "info"), observability.NewNoopMetrics())
 	if err == nil {
 		t.Skip("Skipping - requires actual Postgres/Redis connections")
 	}
@@ -160,6 +163,8 @@ func TestPipeline_EventFlow_Success(t *testing.T) {
 		maxAttempts: 1,
 		backoffMs:   0,
 		logger:      logger.New("plain", "info"),
+		metrics:     observability.NewNoopMetrics(),
+		tracer:      otel.Tracer("test"),
 	}
 
 	err := pipeline.Run(context.Background())
@@ -210,6 +215,8 @@ func TestPipeline_TransformDrop(t *testing.T) {
 		maxAttempts: 1,
 		backoffMs:   0,
 		logger:      logger.New("plain", "info"),
+		metrics:     observability.NewNoopMetrics(),
+		tracer:      otel.Tracer("test"),
 	}
 
 	err := pipeline.Run(context.Background())
@@ -257,6 +264,8 @@ func TestPipeline_DecoderError(t *testing.T) {
 		maxAttempts: 1,
 		backoffMs:   0,
 		logger:      logger.New("plain", "info"),
+		metrics:     observability.NewNoopMetrics(),
+		tracer:      otel.Tracer("test"),
 	}
 
 	err := pipeline.Run(context.Background())
@@ -308,6 +317,8 @@ func TestPipeline_TransformError(t *testing.T) {
 		maxAttempts: 1,
 		backoffMs:   0,
 		logger:      logger.New("plain", "info"),
+		metrics:     observability.NewNoopMetrics(),
+		tracer:      otel.Tracer("test"),
 	}
 
 	err := pipeline.Run(context.Background())
@@ -363,6 +374,8 @@ func TestPipeline_SinkError(t *testing.T) {
 		maxAttempts: 1,
 		backoffMs:   0,
 		logger:      logger.New("plain", "info"),
+		metrics:     observability.NewNoopMetrics(),
+		tracer:      otel.Tracer("test"),
 	}
 
 	err := pipeline.Run(context.Background())
@@ -410,6 +423,8 @@ func TestPipeline_Close_Success(t *testing.T) {
 		maxAttempts: 1,
 		backoffMs:   0,
 		logger:      logger.New("plain", "info"),
+		metrics:     observability.NewNoopMetrics(),
+		tracer:      otel.Tracer("test"),
 	}
 
 	err := pipeline.Close()
@@ -454,6 +469,8 @@ func TestPipeline_Close_WithErrors(t *testing.T) {
 		maxAttempts: 1,
 		backoffMs:   0,
 		logger:      logger.New("plain", "info"),
+		metrics:     observability.NewNoopMetrics(),
+		tracer:      otel.Tracer("test"),
 	}
 
 	err := pipeline.Close()
@@ -487,6 +504,8 @@ func TestPipeline_ContextCancellation(t *testing.T) {
 		maxAttempts: 1,
 		backoffMs:   0,
 		logger:      logger.New("plain", "info"),
+		metrics:     observability.NewNoopMetrics(),
+		tracer:      otel.Tracer("test"),
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -519,6 +538,8 @@ func TestPipeline_SourceChannelClosed(t *testing.T) {
 		maxAttempts: 1,
 		backoffMs:   0,
 		logger:      logger.New("plain", "info"),
+		metrics:     observability.NewNoopMetrics(),
+		tracer:      otel.Tracer("test"),
 	}
 
 	ctx := context.Background()
@@ -562,6 +583,8 @@ func TestPipeline_SourceErrorEvent(t *testing.T) {
 		maxAttempts: 1,
 		backoffMs:   0,
 		logger:      logger.New("plain", "info"),
+		metrics:     observability.NewNoopMetrics(),
+		tracer:      otel.Tracer("test"),
 	}
 
 	err := pipeline.Run(context.Background())
@@ -609,6 +632,8 @@ func TestPipeline_DecoderNilEvent(t *testing.T) {
 		maxAttempts: 1,
 		backoffMs:   0,
 		logger:      logger.New("plain", "info"),
+		metrics:     observability.NewNoopMetrics(),
+		tracer:      otel.Tracer("test"),
 	}
 
 	err := pipeline.Run(context.Background())
@@ -681,6 +706,8 @@ func TestPipeline_TransformError_WithDLQ(t *testing.T) {
 		maxAttempts: 3,
 		backoffMs:   0,
 		logger:      logger.New("plain", "info"),
+		metrics:     observability.NewNoopMetrics(),
+		tracer:      otel.Tracer("test"),
 	}
 
 	err := pipeline.Run(context.Background())
@@ -743,6 +770,8 @@ func TestPipeline_SinkError_WithDLQ(t *testing.T) {
 		maxAttempts: 2,
 		backoffMs:   0,
 		logger:      logger.New("plain", "info"),
+		metrics:     observability.NewNoopMetrics(),
+		tracer:      otel.Tracer("test"),
 	}
 
 	err := pipeline.Run(context.Background())
@@ -797,6 +826,8 @@ func TestPipeline_RetrySuccess(t *testing.T) {
 		maxAttempts: 3,
 		backoffMs:   0,
 		logger:      logger.New("plain", "info"),
+		metrics:     observability.NewNoopMetrics(),
+		tracer:      otel.Tracer("test"),
 	}
 
 	err := pipeline.Run(context.Background())
@@ -846,6 +877,8 @@ func TestPipeline_NoDLQ_LogAndSkip(t *testing.T) {
 		maxAttempts: 2,
 		backoffMs:   0,
 		logger:      logger.New("plain", "info"),
+		metrics:     observability.NewNoopMetrics(),
+		tracer:      otel.Tracer("test"),
 	}
 
 	err := pipeline.Run(context.Background())

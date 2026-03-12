@@ -68,8 +68,13 @@ iris/
 │   │   └── offset.go          # Offset tracking
 │   ├── config/
 │   │   └── config.go          # Configuration loader
-│   └── logger/
-│       └── logger.go          # Structured logger (slog)
+│   ├── logger/
+│   │   └── logger.go          # Structured logger (slog)
+│   └── observability/         # Prometheus metrics, OTel tracing, health endpoints
+│       ├── metrics.go         # Metrics interface + Prometheus + noop implementations
+│       ├── health.go          # HealthChecker interface + liveness/readiness handlers
+│       ├── server.go          # HTTP server for /metrics, /healthz, /readyz
+│       └── tracing.go         # OTel TracerProvider with OTLP/gRPC exporter
 ├── internal/
 │   ├── source/postgres/       # PostgreSQL CDC connector (pglogrepl)
 │   ├── transform/
@@ -122,6 +127,18 @@ sink:
 #   table_stream_map:
 #     users: cdc:users
 #     orders: cdc:orders
+
+# Observability (optional)
+observability:
+  metrics:
+    enabled: true
+    port: 9090              # Separate HTTP server for /metrics, /healthz, /readyz
+    bind: "0.0.0.0"
+  tracing:
+    enabled: false
+    endpoint: localhost:4317 # OTLP/gRPC endpoint
+    service_name: iris
+    sample_rate: 1.0
 ```
 
 ## Event Format
@@ -145,6 +162,8 @@ sink:
 - **wazero** - WASM runtime (zero dependencies)
 - **urfave/cli/v2** - CLI framework
 - **yaml.v3** - YAML parsing
+- **prometheus/client_golang** - Prometheus metrics
+- **go.opentelemetry.io/otel** - OpenTelemetry tracing (OTLP/gRPC exporter)
 - **testcontainers-go** - Integration test containers (PostgreSQL, Redis)
 
 ## WASM Transform ABI
@@ -174,6 +193,8 @@ Example modules in `examples/transforms/` (Rust and TinyGo).
 - Sink factory pattern with registry-based builder registration
 - Sinks handle JSON encoding internally
 - WASM examples: Rust modules via `cargo build --target wasm32-unknown-unknown`, TinyGo modules via `tinygo build -target=wasi` (requires Go <=1.25)
+- Observability: Interface-based `Metrics` with Prometheus impl + noop fallback; OTel traces with 3 spans per event (`pipeline.process_event` → `transform.process` → `sink.write`); separate HTTP server for `/metrics`, `/healthz`, `/readyz`
+- Pipeline accepts `observability.Metrics` interface — use `observability.NewNoopMetrics()` in tests
 
 ## Testing Requirements
 

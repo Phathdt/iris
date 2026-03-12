@@ -26,13 +26,35 @@ func PrintVersion() {
 
 // Config holds the entire pipeline configuration
 type Config struct {
-	Source    SourceConfig     `yaml:"source"`
-	Transform *TransformConfig `yaml:"transform,omitempty"`
-	Sink      SinkConfig       `yaml:"sink"`
-	Mapping   MappingConfig    `yaml:"mapping,omitempty"`
-	Logger    LoggerConfig     `yaml:"logger,omitempty"`
-	DLQ       *DLQConfig       `yaml:"dlq,omitempty"`
-	Retry     RetryConfig      `yaml:"retry,omitempty"`
+	Source        SourceConfig        `yaml:"source"`
+	Transform     *TransformConfig    `yaml:"transform,omitempty"`
+	Sink          SinkConfig          `yaml:"sink"`
+	Mapping       MappingConfig       `yaml:"mapping,omitempty"`
+	Logger        LoggerConfig        `yaml:"logger,omitempty"`
+	DLQ           *DLQConfig          `yaml:"dlq,omitempty"`
+	Retry         RetryConfig         `yaml:"retry,omitempty"`
+	Observability ObservabilityConfig `yaml:"observability,omitempty"`
+}
+
+// ObservabilityConfig holds metrics and tracing configuration
+type ObservabilityConfig struct {
+	Metrics MetricsConfig `yaml:"metrics,omitempty"`
+	Tracing TracingConfig `yaml:"tracing,omitempty"`
+}
+
+// MetricsConfig holds Prometheus metrics server configuration
+type MetricsConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Port    int    `yaml:"port,omitempty"`
+	Bind    string `yaml:"bind,omitempty"`
+}
+
+// TracingConfig holds OpenTelemetry tracing configuration
+type TracingConfig struct {
+	Enabled     bool    `yaml:"enabled"`
+	Endpoint    string  `yaml:"endpoint,omitempty"`
+	ServiceName string  `yaml:"service_name,omitempty"`
+	SampleRate  float64 `yaml:"sample_rate,omitempty"`
 }
 
 // DLQConfig holds the dead letter queue configuration
@@ -160,6 +182,23 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Retry.BackoffMs <= 0 {
 		cfg.Retry.BackoffMs = 100
+	}
+
+	// Set default observability config
+	if cfg.Observability.Metrics.Port <= 0 {
+		cfg.Observability.Metrics.Port = 9090
+	}
+	if cfg.Observability.Metrics.Bind == "" {
+		cfg.Observability.Metrics.Bind = "0.0.0.0"
+	}
+	if cfg.Observability.Tracing.Endpoint == "" {
+		cfg.Observability.Tracing.Endpoint = "localhost:4317"
+	}
+	if cfg.Observability.Tracing.ServiceName == "" {
+		cfg.Observability.Tracing.ServiceName = "iris"
+	}
+	if cfg.Observability.Tracing.SampleRate <= 0 {
+		cfg.Observability.Tracing.SampleRate = 1.0
 	}
 
 	if err := cfg.Validate(); err != nil {

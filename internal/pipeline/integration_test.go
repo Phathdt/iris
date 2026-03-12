@@ -13,6 +13,7 @@ import (
 
 	"iris/pkg/config"
 	"iris/pkg/logger"
+	"iris/pkg/observability"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/redis/go-redis/v9"
@@ -234,7 +235,7 @@ func TestIntegration_Pipeline_PostgresToRedisList(t *testing.T) {
 	log := logger.New("plain", "info")
 
 	// Create and start pipeline
-	pipe, err := NewPipeline(cfg, log)
+	pipe, err := NewPipeline(cfg, log, observability.NewNoopMetrics())
 	if err != nil {
 		t.Fatalf("failed to create pipeline: %v", err)
 	}
@@ -338,7 +339,7 @@ func TestIntegration_Pipeline_PostgresToRedisStream(t *testing.T) {
 	log := logger.New("plain", "info")
 
 	// Create and start pipeline
-	pipe, err := NewPipeline(cfg, log)
+	pipe, err := NewPipeline(cfg, log, observability.NewNoopMetrics())
 	if err != nil {
 		t.Fatalf("failed to create pipeline: %v", err)
 	}

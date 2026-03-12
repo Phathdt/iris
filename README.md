@@ -13,7 +13,12 @@ Postgres → Iris → WASM Transform → Redis/Kafka
 - **Lightweight CDC engine** - Replaces heavy stacks like Debezium + Kafka Connect for small use cases
 - **WASM transforms** - Custom event filtering and transformation via WebAssembly (Rust, TinyGo)
 - **Redis List and Stream sinks** - Push events to Redis Lists (LPUSH) or Streams (XADD) with automatic trimming
-- **Table-to-stream mapping** - Route table changes to dedicated Redis Stream keys
+- **Kafka sink** - Stream events to Apache Kafka topics
+- **Table-to-stream mapping** - Route table changes to dedicated Redis Stream keys or Kafka topics
+- **Dead letter queue** - Failed events routed to a DLQ sink after retry exhaustion
+- **Prometheus metrics** - Events/sec, replication lag, transform/sink latency histograms, error counters
+- **OpenTelemetry tracing** - Distributed traces through the pipeline (OTLP/gRPC)
+- **Health endpoints** - Kubernetes-ready `/healthz` and `/readyz` probes
 - **Single binary deployment** - No external dependencies required
 
 ## Quick Start
@@ -58,6 +63,17 @@ sink:
 #   table_stream_map:
 #     users: cdc:users
 #     orders: cdc:orders
+
+# Observability (optional)
+observability:
+  metrics:
+    enabled: true
+    port: 9090
+  tracing:
+    enabled: false
+    endpoint: localhost:4317
+    service_name: iris
+    sample_rate: 1.0
 ```
 
 ### Run Pipeline
@@ -199,7 +215,8 @@ iris/
 ├── pkg/
 │   ├── cdc/               # Core CDC interfaces and types
 │   ├── config/            # Configuration loading
-│   └── logger/            # Structured logger (slog)
+│   ├── logger/            # Structured logger (slog)
+│   └── observability/     # Prometheus metrics, OTel tracing, health endpoints
 ├── internal/
 │   ├── source/postgres/   # PostgreSQL CDC connector (pglogrepl)
 │   ├── transform/
@@ -215,6 +232,36 @@ iris/
 ├── docs/                  # Documentation
 └── plans/                 # Implementation plans
 ```
+
+## Observability
+
+When `observability.metrics.enabled: true`, Iris exposes a separate HTTP server (default `:9090`) with:
+
+| Endpoint | Description |
+|----------|-------------|
+| `/metrics` | Prometheus metrics (events processed, replication lag, transform/sink duration, errors) |
+| `/healthz` | Liveness probe (always 200) |
+| `/readyz` | Readiness probe (checks component health) |
+
+### Prometheus Metrics
+
+| Metric | Type | Labels |
+|--------|------|--------|
+| `iris_events_processed_total` | Counter | table, op, status |
+| `iris_replication_lag_seconds` | Gauge | — |
+| `iris_transform_duration_seconds` | Histogram | — |
+| `iris_sink_write_duration_seconds` | Histogram | — |
+| `iris_pipeline_errors_total` | Counter | component, error_type |
+
+### OpenTelemetry Tracing
+
+When `observability.tracing.enabled: true`, Iris exports traces via OTLP/gRPC with three spans per event:
+
+```
+pipeline.process_event → transform.process → sink.write
+```
+
+Compatible with Jaeger, Tempo, and any OTLP-compatible collector.
 
 ## Use Cases
 

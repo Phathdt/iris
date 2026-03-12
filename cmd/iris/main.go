@@ -10,6 +10,7 @@ import (
 	"iris/internal/pipeline"
 	"iris/pkg/config"
 	"iris/pkg/logger"
+	"iris/pkg/observability"
 
 	"github.com/urfave/cli/v2"
 )
@@ -77,16 +78,41 @@ func runPipeline(c *cli.Context) error {
 		"format", cfg.Logger.Format,
 	)
 
-	// Create pipeline
-	log.Info("creating pipeline")
-	pl, err := pipeline.NewPipeline(*cfg, log)
-	if err != nil {
-		return fmt.Errorf("create pipeline: %w", err)
-	}
-
 	// Setup context with cancellation for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Initialize metrics (noop if disabled)
+	var metrics observability.Metrics = observability.NewNoopMetrics()
+	var obsServer *observability.Server
+
+	if cfg.Observability.Metrics.Enabled {
+		promMetrics, registry := observability.NewPrometheusMetrics()
+		metrics = promMetrics
+
+		// Health checkers — empty for now, can be extended later
+		checkers := map[string]observability.HealthChecker{}
+
+		obsServer = observability.NewServer(cfg.Observability.Metrics, registry, checkers, log)
+		obsServer.Start()
+	}
+
+	// Initialize tracing (noop if disabled — OTel returns no-op tracer)
+	if cfg.Observability.Tracing.Enabled {
+		tp, err := observability.InitTracer(ctx, cfg.Observability.Tracing)
+		if err != nil {
+			return fmt.Errorf("init tracer: %w", err)
+		}
+		defer observability.ShutdownTracer(context.Background(), tp)
+		log.Info("tracing enabled", "endpoint", cfg.Observability.Tracing.Endpoint)
+	}
+
+	// Create pipeline
+	log.Info("creating pipeline")
+	pl, err := pipeline.NewPipeline(*cfg, log, metrics)
+	if err != nil {
+		return fmt.Errorf("create pipeline: %w", err)
+	}
 
 	// Setup signal handling for graceful shutdown
 	sigCh := make(chan os.Signal, 1)
@@ -109,6 +135,13 @@ func runPipeline(c *cli.Context) error {
 	log.Info("shutting down pipeline")
 	if err := pl.Close(); err != nil {
 		return fmt.Errorf("close pipeline: %w", err)
+	}
+
+	// Shutdown observability server
+	if obsServer != nil {
+		if err := obsServer.Shutdown(context.Background()); err != nil {
+			log.Warn("observability server shutdown error", "error", err)
+		}
 	}
 
 	log.Info("iris shutdown complete")
