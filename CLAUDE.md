@@ -65,7 +65,8 @@ iris/
 │   │   ├── transform.go       # Transform interface
 │   │   ├── sink.go            # Sink interface
 │   │   ├── decoder.go         # Decoder interface
-│   │   └── offset.go          # Offset tracking
+│   │   ├── offset.go          # Offset tracking
+│   │   └── offset_store.go   # Offset store interface
 │   ├── config/
 │   │   └── config.go          # Configuration loader
 │   ├── logger/
@@ -80,10 +81,15 @@ iris/
 │   ├── transform/
 │   │   ├── wasm/              # WASM runtime (wazero)
 │   │   │   └── testdata/      # Pre-built WASM binaries for tests
-│   │   └── nop/               # No-op transform (passthrough)
+│   │   ├── nop/               # No-op transform (passthrough)
+│   │   └── chain/             # Transform chain (multiple WASM modules)
 │   ├── sink/
 │   │   ├── factory.go         # Registry-based sink factory
-│   │   └── redis/             # Redis List + Stream sinks
+│   │   ├── redis/             # Redis List + Stream sinks
+│   │   └── kafka/             # Kafka sink (franz-go)
+│   ├── dlq/                   # Dead letter queue
+│   ├── offset/
+│   │   └── file/              # File-based offset store
 │   └── pipeline/              # Pipeline orchestration
 ├── examples/transforms/       # Example WASM transform modules
 │   ├── passthrough/           # TinyGo passthrough (returns events unchanged)
@@ -109,7 +115,12 @@ source:
 transform:
   enabled: false
   type: wasm
+  # Option 1: Single WASM module
   path: ./transforms/filter.wasm
+  # Option 2: Multiple WASM modules (applied sequentially)
+  # modules:
+  #   - path: ./transforms/filter.wasm
+  #   - path: ./transforms/enrich.wasm
 
 # Sink option 1: Redis List (LPUSH + LTRIM)
 sink:
@@ -127,6 +138,31 @@ sink:
 #   table_stream_map:
 #     users: cdc:users
 #     orders: cdc:orders
+
+# Sink option 3: Kafka
+# sink:
+#   type: kafka
+#   brokers:
+#     - localhost:9092
+
+# Dead letter queue (optional)
+dlq:
+  enabled: true
+  sink:
+    type: redis_stream
+    addr: localhost:6379
+    key: cdc:dlq
+    max_len: 10000
+
+# Retry configuration (optional)
+retry:
+  max_attempts: 3
+  backoff_ms: 100
+
+# Logger configuration (optional)
+logger:
+  level: info  # debug, info, warn, error
+  format: text # text, json
 
 # Observability (optional)
 observability:
@@ -159,6 +195,7 @@ observability:
 - **pgx/v5** - PostgreSQL driver
 - **pglogrepl** - Logical replication protocol
 - **go-redis/v9** - Redis client
+- **franz-go** - Kafka client (twmb/franz-go)
 - **wazero** - WASM runtime (zero dependencies)
 - **urfave/cli/v2** - CLI framework
 - **yaml.v3** - YAML parsing
@@ -189,9 +226,13 @@ Example modules in `examples/transforms/` (Rust and TinyGo).
 - Go 1.26.0
 - Uses logical replication for PostgreSQL CDC (pgoutput plugin)
 - WASM transforms use wazero runtime with `WithStartFunctions()` to skip `_start`
-- Two Redis sink types: List (LPUSH+LTRIM) and Stream (XADD+XTRIM)
+- Three sink types: Redis List (LPUSH+LTRIM), Redis Stream (XADD+XTRIM), Kafka (ProduceSync)
 - Sink factory pattern with registry-based builder registration
 - Sinks handle JSON encoding internally
+- Transform chain: Apply multiple WASM modules sequentially via `internal/transform/chain`
+- DLQ: Failed events routed to dead letter queue after retry exhaustion (`internal/dlq`)
+- Retry with backoff: Configurable max attempts and delay (default: 3 attempts, 100ms backoff)
+- Logger: Structured logging via `slog` with configurable level and format
 - WASM examples: Rust modules via `cargo build --target wasm32-unknown-unknown`, TinyGo modules via `tinygo build -target=wasi` (requires Go <=1.25)
 - Observability: Interface-based `Metrics` with Prometheus impl + noop fallback; OTel traces with 3 spans per event (`pipeline.process_event` → `transform.process` → `sink.write`); separate HTTP server for `/metrics`, `/healthz`, `/readyz`
 - Pipeline accepts `observability.Metrics` interface — use `observability.NewNoopMetrics()` in tests

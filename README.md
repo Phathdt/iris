@@ -12,13 +12,16 @@ Postgres → Iris → WASM Transform → Redis/Kafka
 
 - **Lightweight CDC engine** - Replaces heavy stacks like Debezium + Kafka Connect for small use cases
 - **WASM transforms** - Custom event filtering and transformation via WebAssembly (Rust, TinyGo)
+- **Transform chaining** - Apply multiple WASM modules sequentially
 - **Redis List and Stream sinks** - Push events to Redis Lists (LPUSH) or Streams (XADD) with automatic trimming
 - **Kafka sink** - Stream events to Apache Kafka topics
 - **Table-to-stream mapping** - Route table changes to dedicated Redis Stream keys or Kafka topics
 - **Dead letter queue** - Failed events routed to a DLQ sink after retry exhaustion
+- **Retry with backoff** - Configurable retry attempts and delay for transform/sink operations
 - **Prometheus metrics** - Events/sec, replication lag, transform/sink latency histograms, error counters
 - **OpenTelemetry tracing** - Distributed traces through the pipeline (OTLP/gRPC)
 - **Health endpoints** - Kubernetes-ready `/healthz` and `/readyz` probes
+- **Structured logging** - Configurable log level (debug, info, warn, error) and format (text, json)
 - **Single binary deployment** - No external dependencies required
 
 ## Quick Start
@@ -45,7 +48,13 @@ source:
 transform:
   enabled: false
   type: wasm
+  # Option 1: Single WASM module (backward compatible)
   path: ./transforms/filter.wasm
+
+  # Option 2: Multiple WASM modules (applied sequentially)
+  # modules:
+  #   - path: ./transforms/filter.wasm
+  #   - path: ./transforms/enrich.wasm
 
 # Option 1: Redis List sink
 sink:
@@ -63,6 +72,36 @@ sink:
 #   table_stream_map:
 #     users: cdc:users
 #     orders: cdc:orders
+
+# Option 3: Kafka sink
+# sink:
+#   type: kafka
+#   brokers:
+#     - localhost:9092
+#   # Optional: map tables to topics
+# mapping:
+#   table_stream_map:
+#     users: users-topic
+#     orders: orders-topic
+
+# Dead letter queue (optional)
+dlq:
+  enabled: true
+  sink:
+    type: redis_stream
+    addr: localhost:6379
+    key: cdc:dlq
+    max_len: 10000
+
+# Retry configuration (optional)
+retry:
+  max_attempts: 3
+  backoff_ms: 100
+
+# Logger configuration (optional)
+logger:
+  level: info  # debug, info, warn, error
+  format: text # text, json
 
 # Observability (optional)
 observability:
@@ -106,6 +145,7 @@ observability:
 │ Stream Sink │
 │ Redis List  │  LPUSH + LTRIM
 │ Redis Stream│  XADD + XTRIM
+│ Kafka       │  Produce to topic
 └─────────────┘
 ```
 
@@ -221,10 +261,15 @@ iris/
 │   ├── source/postgres/   # PostgreSQL CDC connector (pglogrepl)
 │   ├── transform/
 │   │   ├── wasm/          # WASM runtime (wazero)
-│   │   └── nop/           # No-op passthrough transform
+│   │   ├── nop/           # No-op passthrough transform
+│   │   └── chain/         # Transform chain (multiple WASM modules)
 │   ├── sink/
 │   │   ├── factory.go     # Registry-based sink factory
-│   │   └── redis/         # Redis List + Stream sinks
+│   │   ├── redis/         # Redis List + Stream sinks
+│   │   └── kafka/         # Kafka sink (franz-go)
+│   ├── dlq/               # Dead letter queue
+│   ├── offset/
+│   │   └── file/          # File-based offset store
 │   └── pipeline/          # Pipeline orchestration
 ├── examples/transforms/   # Example WASM modules (Rust + TinyGo)
 ├── tests/
