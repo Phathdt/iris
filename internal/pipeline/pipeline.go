@@ -9,6 +9,7 @@ import (
 	"iris/internal/dlq"
 	"iris/internal/sink"
 	postgresSource "iris/internal/source/postgres"
+	"iris/internal/transform/chain"
 	nopTransform "iris/internal/transform/nop"
 	wasmTransform "iris/internal/transform/wasm"
 	"iris/pkg/cdc"
@@ -57,15 +58,40 @@ func NewPipeline(cfg config.Config, log logger.Logger, metrics observability.Met
 	// 3. Create transform (optional)
 	var tf cdc.Transform = nopTransform.NewNoOp()
 	if cfg.Transform != nil && cfg.Transform.Enabled {
-		logger.Info("creating WASM transform", "path", cfg.Transform.Path)
-		tf, err = wasmTransform.NewWASM(context.Background(), wasmTransform.Config{
-			Path:              cfg.Transform.Path,
-			FunctionName:      cfg.Transform.FunctionName,
-			AllocFunctionName: cfg.Transform.AllocFunctionName,
-			EnableLogging:     cfg.Transform.EnableLogging,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("create transform: %w", err)
+		// Check if Modules are specified (transform chaining)
+		if len(cfg.Transform.Modules) > 0 {
+			logger.Info("creating transform chain", "modules", len(cfg.Transform.Modules))
+			transforms := make([]cdc.Transform, 0, len(cfg.Transform.Modules))
+			for i, mod := range cfg.Transform.Modules {
+				logger.Debug("adding transform to chain", "index", i, "path", mod.Path)
+				wt, err := wasmTransform.NewWASM(context.Background(), wasmTransform.Config{
+					Path:              mod.Path,
+					FunctionName:      mod.FunctionName,
+					AllocFunctionName: mod.AllocFunctionName,
+					EnableLogging:     mod.EnableLogging,
+				})
+				if err != nil {
+					// Close already-created transforms to prevent resource leak
+					for _, t := range transforms {
+						_ = t.Close()
+					}
+					return nil, fmt.Errorf("create transform %d: %w", i, err)
+				}
+				transforms = append(transforms, wt)
+			}
+			tf = chain.NewTransformChain(transforms)
+		} else if cfg.Transform.Path != "" {
+			// Single transform (backward compatibility)
+			logger.Info("creating WASM transform", "path", cfg.Transform.Path)
+			tf, err = wasmTransform.NewWASM(context.Background(), wasmTransform.Config{
+				Path:              cfg.Transform.Path,
+				FunctionName:      cfg.Transform.FunctionName,
+				AllocFunctionName: cfg.Transform.AllocFunctionName,
+				EnableLogging:     cfg.Transform.EnableLogging,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("create transform: %w", err)
+			}
 		}
 	}
 

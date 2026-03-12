@@ -107,6 +107,21 @@ type SourceConfig struct {
 	StartLSN string `yaml:"start_lsn,omitempty"`
 }
 
+// TransformModuleConfig holds configuration for a single WASM transform module
+type TransformModuleConfig struct {
+	// Path is the path to the WASM module file
+	Path string `yaml:"path"`
+
+	// FunctionName is the exported function to call (default: "handle")
+	FunctionName string `yaml:"function_name,omitempty"`
+
+	// AllocFunctionName is the memory allocation function (default: "alloc")
+	AllocFunctionName string `yaml:"alloc_function_name,omitempty"`
+
+	// EnableLogging enables host function logging
+	EnableLogging bool `yaml:"enable_logging,omitempty"`
+}
+
 // TransformConfig holds the WASM transform configuration
 type TransformConfig struct {
 	// Enabled enables the WASM transform
@@ -115,7 +130,11 @@ type TransformConfig struct {
 	// Type is the transform type (currently only "wasm")
 	Type string `yaml:"type"`
 
-	// Path is the path to the WASM module file
+	// Modules is the list of WASM modules to apply sequentially
+	// If specified, transforms are applied in order (chain)
+	Modules []TransformModuleConfig `yaml:"modules,omitempty"`
+
+	// Path is the path to a single WASM module file (for backward compatibility)
 	Path string `yaml:"path"`
 
 	// FunctionName is the exported function to call (default: "handle")
@@ -226,8 +245,19 @@ func (c *Config) Validate() error {
 		if c.Transform.Type != "wasm" {
 			return fmt.Errorf("unsupported transform type: %s", c.Transform.Type)
 		}
-		if c.Transform.Path == "" {
-			return fmt.Errorf("transform.path is required when enabled")
+		// Support both single Path (backward compatibility) and Modules array
+		hasPath := c.Transform.Path != ""
+		hasModules := len(c.Transform.Modules) > 0
+
+		if !hasPath && !hasModules {
+			return fmt.Errorf("transform.path or transform.modules is required when enabled")
+		}
+
+		// Validate each module in the chain
+		for i, mod := range c.Transform.Modules {
+			if mod.Path == "" {
+				return fmt.Errorf("transform.modules[%d].path is required", i)
+			}
 		}
 	}
 
