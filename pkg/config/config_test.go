@@ -380,8 +380,8 @@ func TestValidate_TransformEnabled_MissingPath(t *testing.T) {
 		t.Fatal("Validate() expected error for missing transform path, got nil")
 	}
 
-	if err.Error() != "transform.path is required when enabled" {
-		t.Errorf("Validate() error = %v, want 'transform.path is required when enabled'", err)
+	if err.Error() != "transform.path or transform.modules is required when enabled" {
+		t.Errorf("Validate() error = %v, want 'transform.path or transform.modules is required when enabled'", err)
 	}
 }
 

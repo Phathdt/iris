@@ -13,10 +13,18 @@ source:
 transform:
   enabled: false
   type: wasm
+  # Single transform (backward compatibility)
   path: ./transforms/filter.wasm
   # function_name: handle         # Optional: default is "handle"
   # alloc_function_name: alloc    # Optional: default is "alloc"
   # enable_logging: false         # Optional: enable host function logging
+
+  # Multiple transforms (chain) - apply sequentially
+  # modules:
+  #   - path: ./filter.wasm
+  #   - path: ./enrich.wasm
+  #   - path: ./mask.wasm
+  # When modules is specified, path is ignored
 
 sink:
   # Option 1: Redis List sink (LPUSH + LTRIM)
