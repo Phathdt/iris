@@ -5,6 +5,7 @@ import (
 
 	"iris/internal/sink/file"
 	"iris/internal/sink/kafka"
+	natssink "iris/internal/sink/nats"
 	"iris/internal/sink/redis"
 	"iris/internal/sink/stdout"
 	"iris/pkg/cdc"
@@ -22,6 +23,8 @@ type Config struct {
 	ApproximateTrim bool              // For Redis Stream
 	Brokers         []string          // For Kafka
 	TableTopicMap   map[string]string // For Kafka
+	URL             string            // For NATS
+	TableSubjectMap map[string]string // For NATS
 	Path            string            // For file sink
 	MaxSize         int64             // For file sink
 	MaxFiles        int               // For file sink
@@ -46,6 +49,7 @@ func NewFactory() *SinkRegistry {
 	r.Register("redis", buildRedisListSink)
 	r.Register("redis_stream", buildRedisStreamSink)
 	r.Register("kafka", buildKafkaSink)
+	r.Register("nats", buildNATSSink)
 	r.Register("stdout", buildStdoutSink)
 	r.Register("file", buildFileSink)
 
@@ -94,6 +98,14 @@ func buildKafkaSink(cfg Config) (cdc.Sink, error) {
 	return kafka.NewKafkaSink(kafka.Config{
 		Brokers:       cfg.Brokers,
 		TableTopicMap: cfg.TableTopicMap,
+	})
+}
+
+// buildNATSSink creates a NATS JetStream sink
+func buildNATSSink(cfg Config) (cdc.Sink, error) {
+	return natssink.NewNATSSink(natssink.Config{
+		URL:             cfg.URL,
+		TableSubjectMap: cfg.TableSubjectMap,
 	})
 }
 

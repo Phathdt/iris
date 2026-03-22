@@ -174,6 +174,9 @@ type SinkConfig struct {
 	// Brokers is the list of Kafka broker addresses (used when type="kafka")
 	Brokers []string `yaml:"brokers,omitempty"`
 
+	// URL is the NATS server URL (used when type="nats")
+	URL string `yaml:"url,omitempty"`
+
 	// Path is the output file path (used when type="file")
 	Path string `yaml:"path,omitempty"`
 
@@ -305,6 +308,10 @@ func validateSink(s SinkConfig, prefix string) error {
 	case "kafka":
 		if len(s.Brokers) == 0 {
 			return fmt.Errorf("%s.brokers is required for kafka sink", prefix)
+		}
+	case "nats":
+		if s.URL == "" {
+			return fmt.Errorf("%s.url is required for nats sink", prefix)
 		}
 	case "file":
 		if s.Path == "" {

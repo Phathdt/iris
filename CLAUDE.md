@@ -86,7 +86,8 @@ iris/
 │   ├── sink/
 │   │   ├── factory.go         # Registry-based sink factory
 │   │   ├── redis/             # Redis List + Stream sinks
-│   │   └── kafka/             # Kafka sink (franz-go)
+│   │   ├── kafka/             # Kafka sink (franz-go)
+│   │   └── nats/              # NATS JetStream sink (nats.go)
 │   ├── dlq/                   # Dead letter queue
 │   ├── offset/
 │   │   └── file/              # File-based offset store
@@ -145,6 +146,11 @@ sink:
 #   brokers:
 #     - localhost:9092
 
+# Sink option 4: NATS JetStream
+# sink:
+#   type: nats
+#   url: nats://localhost:4222
+
 # Dead letter queue (optional)
 dlq:
   enabled: true
@@ -196,6 +202,7 @@ observability:
 - **pglogrepl** - Logical replication protocol
 - **go-redis/v9** - Redis client
 - **franz-go** - Kafka client (twmb/franz-go)
+- **nats.go** - NATS client with JetStream (nats-io/nats.go)
 - **wazero** - WASM runtime (zero dependencies)
 - **urfave/cli/v2** - CLI framework
 - **yaml.v3** - YAML parsing
@@ -226,7 +233,7 @@ Example modules in `examples/transforms/` (Rust and TinyGo).
 - Go 1.26.0
 - Uses logical replication for PostgreSQL CDC (pgoutput plugin)
 - WASM transforms use wazero runtime with `WithStartFunctions()` to skip `_start`
-- Three sink types: Redis List (LPUSH+LTRIM), Redis Stream (XADD+XTRIM), Kafka (ProduceSync)
+- Sink types: Redis List (LPUSH+LTRIM), Redis Stream (XADD+XTRIM), Kafka (ProduceSync), NATS JetStream (Publish), Stdout, File
 - Sink factory pattern with registry-based builder registration
 - Sinks handle JSON encoding internally
 - Transform chain: Apply multiple WASM modules sequentially via `internal/transform/chain`

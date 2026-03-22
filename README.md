@@ -5,7 +5,7 @@
 Iris is a lightweight Change Data Capture (CDC) pipeline that reads database change events, transforms them using WebAssembly, and streams to message systems.
 
 ```
-Postgres → Iris → WASM Transform → Redis/Kafka
+Postgres → Iris → WASM Transform → Redis/Kafka/NATS
 ```
 
 ## Features
@@ -15,7 +15,8 @@ Postgres → Iris → WASM Transform → Redis/Kafka
 - **Transform chaining** - Apply multiple WASM modules sequentially
 - **Redis List and Stream sinks** - Push events to Redis Lists (LPUSH) or Streams (XADD) with automatic trimming
 - **Kafka sink** - Stream events to Apache Kafka topics
-- **Table-to-stream mapping** - Route table changes to dedicated Redis Stream keys or Kafka topics
+- **NATS JetStream sink** - Publish events to NATS JetStream subjects
+- **Table-to-stream mapping** - Route table changes to dedicated Redis Stream keys, Kafka topics, or NATS subjects
 - **Dead letter queue** - Failed events routed to a DLQ sink after retry exhaustion
 - **Retry with backoff** - Configurable retry attempts and delay for transform/sink operations
 - **Prometheus metrics** - Events/sec, replication lag, transform/sink latency histograms, error counters
@@ -84,6 +85,15 @@ sink:
 #     users: users-topic
 #     orders: orders-topic
 
+# Option 4: NATS JetStream sink
+# sink:
+#   type: nats
+#   url: nats://localhost:4222
+# mapping:
+#   table_stream_map:
+#     users: app.users
+#     orders: app.orders
+
 # Dead letter queue (optional)
 dlq:
   enabled: true
@@ -146,6 +156,7 @@ observability:
 │ Redis List  │  LPUSH + LTRIM
 │ Redis Stream│  XADD + XTRIM
 │ Kafka       │  Produce to topic
+│ NATS JS     │  Publish to subject
 └─────────────┘
 ```
 
@@ -266,7 +277,8 @@ iris/
 │   ├── sink/
 │   │   ├── factory.go     # Registry-based sink factory
 │   │   ├── redis/         # Redis List + Stream sinks
-│   │   └── kafka/         # Kafka sink (franz-go)
+│   │   ├── kafka/         # Kafka sink (franz-go)
+│   │   └── nats/          # NATS JetStream sink (nats.go)
 │   ├── dlq/               # Dead letter queue
 │   ├── offset/
 │   │   └── file/          # File-based offset store
@@ -312,7 +324,8 @@ Compatible with Jaeger, Tempo, and any OTLP-compatible collector.
 
 - **Cache sync** - Postgres → Iris → Redis List
 - **Event streaming** - Postgres → Iris → Redis Stream → Consumers
-- **Table-specific routing** - Postgres (users, orders) → Iris → Separate Redis Streams per table
+- **NATS event bus** - Postgres → Iris → NATS JetStream → Microservices
+- **Table-specific routing** - Postgres (users, orders) → Iris → Separate Redis Streams/Kafka topics/NATS subjects per table
 
 ## License
 

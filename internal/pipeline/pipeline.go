@@ -108,6 +108,8 @@ func NewPipeline(cfg config.Config, log logger.Logger, metrics observability.Met
 		ApproximateTrim: cfg.Sink.ApproximateTrim,
 		Brokers:         cfg.Sink.Brokers,
 		TableTopicMap:   cfg.Mapping.TableStreamMap,
+		URL:             cfg.Sink.URL,
+		TableSubjectMap: cfg.Mapping.TableStreamMap,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create sink: %w", err)

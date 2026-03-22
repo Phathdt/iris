@@ -61,6 +61,12 @@ sink:
   # max_size: 104857600            # Optional: rotate when file reaches 100MB
   # max_files: 5                   # Optional: keep up to 5 rotated files
 
+  # Option 6: NATS JetStream sink
+  # Publishes CDC events to NATS JetStream subjects
+  # type: nats
+  # url: nats://localhost:4222
+  # # Uses mapping.table_stream_map for subject routing (defaults to "cdc.{table}")
+
 # Mapping configuration (optional)
 # Maps source tables to destination keys/topics
 # Used by redis_stream (stream keys) and kafka (topic names)
