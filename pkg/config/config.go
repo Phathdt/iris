@@ -173,6 +173,18 @@ type SinkConfig struct {
 
 	// Brokers is the list of Kafka broker addresses (used when type="kafka")
 	Brokers []string `yaml:"brokers,omitempty"`
+
+	// Path is the output file path (used when type="file")
+	Path string `yaml:"path,omitempty"`
+
+	// MaxSize is the maximum file size before rotation in bytes (used when type="file")
+	MaxSize int64 `yaml:"max_size,omitempty"`
+
+	// MaxFiles is the number of rotated files to keep (used when type="file")
+	MaxFiles int `yaml:"max_files,omitempty"`
+
+	// PrettyPrint enables pretty-printed JSON output (used when type="stdout")
+	PrettyPrint bool `yaml:"pretty_print,omitempty"`
 }
 
 // Load loads configuration from a YAML file
@@ -294,6 +306,12 @@ func validateSink(s SinkConfig, prefix string) error {
 		if len(s.Brokers) == 0 {
 			return fmt.Errorf("%s.brokers is required for kafka sink", prefix)
 		}
+	case "file":
+		if s.Path == "" {
+			return fmt.Errorf("%s.path is required for file sink", prefix)
+		}
+	case "stdout":
+		// stdout has no required fields
 	default:
 		return fmt.Errorf("unsupported %s type: %s", prefix, s.Type)
 	}

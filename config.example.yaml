@@ -49,6 +49,18 @@ sink:
   #   - localhost:9092
   # # Uses mapping.table_stream_map for topic routing (defaults to "cdc.{table}")
 
+  # Option 4: Stdout sink (for debugging/development)
+  # Writes CDC events as JSON to stdout
+  # type: stdout
+  # pretty_print: false             # Optional: pretty-print JSON output
+
+  # Option 5: File sink (for logging to file)
+  # Writes CDC events as JSON lines to a file with optional rotation
+  # type: file
+  # path: ./events.jsonl
+  # max_size: 104857600            # Optional: rotate when file reaches 100MB
+  # max_files: 5                   # Optional: keep up to 5 rotated files
+
 # Mapping configuration (optional)
 # Maps source tables to destination keys/topics
 # Used by redis_stream (stream keys) and kafka (topic names)

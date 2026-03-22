@@ -3,8 +3,10 @@ package sink
 import (
 	"fmt"
 
+	"iris/internal/sink/file"
 	"iris/internal/sink/kafka"
 	"iris/internal/sink/redis"
+	"iris/internal/sink/stdout"
 	"iris/pkg/cdc"
 )
 
@@ -20,6 +22,10 @@ type Config struct {
 	ApproximateTrim bool              // For Redis Stream
 	Brokers         []string          // For Kafka
 	TableTopicMap   map[string]string // For Kafka
+	Path            string            // For file sink
+	MaxSize         int64             // For file sink
+	MaxFiles        int               // For file sink
+	PrettyPrint     bool              // For stdout sink
 }
 
 // SinkBuilder is a function that creates a sink from config
@@ -40,6 +46,8 @@ func NewFactory() *SinkRegistry {
 	r.Register("redis", buildRedisListSink)
 	r.Register("redis_stream", buildRedisStreamSink)
 	r.Register("kafka", buildKafkaSink)
+	r.Register("stdout", buildStdoutSink)
+	r.Register("file", buildFileSink)
 
 	return r
 }
@@ -86,5 +94,19 @@ func buildKafkaSink(cfg Config) (cdc.Sink, error) {
 	return kafka.NewKafkaSink(kafka.Config{
 		Brokers:       cfg.Brokers,
 		TableTopicMap: cfg.TableTopicMap,
+	})
+}
+
+// buildStdoutSink creates a stdout sink
+func buildStdoutSink(cfg Config) (cdc.Sink, error) {
+	return stdout.NewStdoutSink(cfg.PrettyPrint), nil
+}
+
+// buildFileSink creates a file sink
+func buildFileSink(cfg Config) (cdc.Sink, error) {
+	return file.NewFileSink(file.Config{
+		Path:     cfg.Path,
+		MaxSize:  cfg.MaxSize,
+		MaxFiles: cfg.MaxFiles,
 	})
 }
