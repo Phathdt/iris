@@ -40,10 +40,14 @@ func TestStdoutSink_Write(t *testing.T) {
 	os.Stdout = oldStdout
 
 	var captured map[string]interface{}
-	// Skip timestamp prefix [YYYY-MM-DDTHH:MM:SSZ]
+	// Strip the "[timestamp] " prefix by locating the JSON start. The prefix
+	// width varies with timezone (RFC3339 offset vs "Z"), so anchor on '{'.
 	output := buf.String()
-	// Find the JSON part (after timestamp prefix)
-	jsonPart := strings.TrimPrefix(output, output[:27])
+	idx := strings.IndexByte(output, '{')
+	if idx < 0 {
+		t.Fatalf("no JSON object in output: %s", output)
+	}
+	jsonPart := output[idx:]
 	if err := json.Unmarshal([]byte(jsonPart), &captured); err != nil {
 		t.Fatalf("Failed to parse output: %v, output: %s", err, output)
 	}

@@ -2,6 +2,7 @@ package kafka
 
 import (
 	"bytes"
+	"encoding/json"
 	"testing"
 
 	"iris/pkg/cdc"
@@ -191,5 +192,38 @@ func TestShapeNonStringKeyCoerced(t *testing.T) {
 	}
 	if string(key) != "42" {
 		t.Errorf("key = %q, want %q", key, "42")
+	}
+}
+
+func TestShapePayloadTypesPassThrough(t *testing.T) {
+	cfg := &OutboxConfig{PayloadField: "payload"}
+	const raw = `{"foo":"bar"}`
+
+	cases := []struct {
+		name    string
+		payload any
+	}{
+		{"map", map[string]any{"foo": "bar"}},
+		{"string", raw},
+		{"bytes", []byte(raw)},
+		{"json.RawMessage", json.RawMessage(raw)},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			event := &cdc.Event{
+				Table: "outbox_events",
+				After: map[string]any{"payload": tc.payload},
+			}
+			_, _, value, err := shape(event, cfg, defaultTopic)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			// All representations must produce the same raw JSON — no
+			// double-encoding of strings, no base64 of bytes.
+			if string(value) != raw {
+				t.Errorf("value = %q, want %q", value, raw)
+			}
+		})
 	}
 }
