@@ -1,0 +1,24 @@
+# VCS / CI
+.git
+.github
+
+# Build artifacts
+bin/
+coverage/
+*.wasm
+
+# Local config / env
+config.yaml
+*.local.yaml
+.env
+
+# Docs / plans (not needed in image)
+docs/
+plans/
+README.md
+CLAUDE.md
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
