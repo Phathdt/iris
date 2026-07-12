@@ -51,16 +51,32 @@ func (s *KafkaSink) Write(ctx context.Context, event *cdc.Event) error {
 		return fmt.Errorf("event is nil")
 	}
 
-	topic := s.config.GetTopic(event.Table)
+	var (
+		topic string
+		key   []byte
+		data  []byte
+		err   error
+	)
 
-	data, err := json.Marshal(event)
-	if err != nil {
-		return fmt.Errorf("encode event: %w", err)
+	if s.config.Outbox != nil {
+		// Outbox mode: derive key/topic/body from columns in event.After.
+		key, topic, data, err = shape(event, s.config.Outbox, s.config.GetTopic)
+		if err != nil {
+			return err
+		}
+	} else {
+		// Default mode: key=table, topic by table, body=full envelope.
+		topic = s.config.GetTopic(event.Table)
+		key = []byte(event.Table)
+		data, err = json.Marshal(event)
+		if err != nil {
+			return fmt.Errorf("encode event: %w", err)
+		}
 	}
 
 	record := &kgo.Record{
 		Topic: topic,
-		Key:   []byte(event.Table),
+		Key:   key,
 		Value: data,
 	}
 

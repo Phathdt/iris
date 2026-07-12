@@ -14,7 +14,7 @@ Postgres → Iris → WASM Transform → Redis/Kafka/NATS
 - **WASM transforms** - Custom event filtering and transformation via WebAssembly (Rust, TinyGo)
 - **Transform chaining** - Apply multiple WASM modules sequentially
 - **Redis List and Stream sinks** - Push events to Redis Lists (LPUSH) or Streams (XADD) with automatic trimming
-- **Kafka sink** - Stream events to Apache Kafka topics
+- **Kafka sink** - Stream events to Apache Kafka topics, with optional outbox column shaping (key/topic/body from row columns, à la Debezium Outbox Event Router)
 - **NATS JetStream sink** - Publish events to NATS JetStream subjects
 - **Table-to-stream mapping** - Route table changes to dedicated Redis Stream keys, Kafka topics, or NATS subjects
 - **Dead letter queue** - Failed events routed to a DLQ sink after retry exhaustion
@@ -84,6 +84,21 @@ sink:
 #   table_stream_map:
 #     users: users-topic
 #     orders: orders-topic
+
+# Option 3b: Kafka sink with outbox column shaping
+# Derive the Kafka message key, topic, and body from columns in event.After
+# (models the Debezium Outbox Event Router). Lets Iris replace a hand-rolled
+# outbox-replayer while preserving per-aggregate ordering (key = aggregate_id).
+# A missing/null/empty column falls back to default behavior per field
+# (key=table, topic=cdc.{table}, body=full envelope).
+# sink:
+#   type: kafka
+#   brokers:
+#     - localhost:9092
+#   outbox:
+#     key_field: aggregate_id   # Kafka message key (per-aggregate ordering)
+#     route_field: event_type   # topic = value of this column (identity routing)
+#     payload_field: payload    # message body = JSON of this column
 
 # Option 4: NATS JetStream sink
 # sink:

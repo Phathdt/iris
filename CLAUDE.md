@@ -145,6 +145,11 @@ sink:
 #   type: kafka
 #   brokers:
 #     - localhost:9092
+#   # Optional outbox column shaping (key/topic/body from event.After columns):
+#   outbox:
+#     key_field: aggregate_id   # Kafka message key (per-aggregate ordering)
+#     route_field: event_type   # topic = value of this column (identity routing)
+#     payload_field: payload    # message body = JSON of this column
 
 # Sink option 4: NATS JetStream
 # sink:
@@ -236,6 +241,7 @@ Example modules in `examples/transforms/` (Rust and TinyGo).
 - Sink types: Redis List (LPUSH+LTRIM), Redis Stream (XADD+XTRIM), Kafka (ProduceSync), NATS JetStream (Publish), Stdout, File
 - Sink factory pattern with registry-based builder registration
 - Sinks handle JSON encoding internally
+- Kafka outbox shaping: optional `sink.outbox` block ({key_field, route_field, payload_field}) makes the Kafka sink derive message key/topic/body from columns in `event.After` (models Debezium Outbox Event Router); missing/null/empty column falls back to default behavior per field. Logic in `internal/sink/kafka/shaper.go`.
 - Transform chain: Apply multiple WASM modules sequentially via `internal/transform/chain`
 - DLQ: Failed events routed to dead letter queue after retry exhaustion (`internal/dlq`)
 - Retry with backoff: Configurable max attempts and delay (default: 3 attempts, 100ms backoff)
