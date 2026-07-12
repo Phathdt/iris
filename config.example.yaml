@@ -48,6 +48,14 @@ sink:
   # brokers:
   #   - localhost:9092
   # # Uses mapping.table_stream_map for topic routing (defaults to "cdc.{table}")
+  # # Optional outbox column shaping: derive key/topic/body from columns in
+  # # event.After (models Debezium Outbox Event Router). When omitted, the sink
+  # # keeps default behavior (key=table, topic=cdc.{table}, body=full envelope).
+  # # A missing/null/empty column falls back to that default per field.
+  # outbox:
+  #   key_field: aggregate_id   # Kafka message key (preserves per-aggregate ordering)
+  #   route_field: event_type   # topic = value of this column (identity routing)
+  #   payload_field: payload    # message body = JSON of this column
 
   # Option 4: Stdout sink (for debugging/development)
   # Writes CDC events as JSON to stdout

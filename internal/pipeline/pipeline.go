@@ -8,6 +8,7 @@ import (
 
 	"iris/internal/dlq"
 	"iris/internal/sink"
+	kafkaSink "iris/internal/sink/kafka"
 	postgresSource "iris/internal/source/postgres"
 	"iris/internal/transform/chain"
 	nopTransform "iris/internal/transform/nop"
@@ -97,6 +98,18 @@ func NewPipeline(cfg config.Config, log logger.Logger, metrics observability.Met
 
 	// 4. Create sink using factory
 	factory := sink.NewFactory()
+
+	// Convert optional outbox config (pkg/config → kafka) to avoid an
+	// import cycle: pkg/config must not depend on internal packages.
+	var outbox *kafkaSink.OutboxConfig
+	if cfg.Sink.Outbox != nil {
+		outbox = &kafkaSink.OutboxConfig{
+			KeyField:     cfg.Sink.Outbox.KeyField,
+			RouteField:   cfg.Sink.Outbox.RouteField,
+			PayloadField: cfg.Sink.Outbox.PayloadField,
+		}
+	}
+
 	snk, err := factory.CreateSink(sink.Config{
 		Type:            cfg.Sink.Type,
 		Addr:            cfg.Sink.Addr,
@@ -108,6 +121,7 @@ func NewPipeline(cfg config.Config, log logger.Logger, metrics observability.Met
 		ApproximateTrim: cfg.Sink.ApproximateTrim,
 		Brokers:         cfg.Sink.Brokers,
 		TableTopicMap:   cfg.Mapping.TableStreamMap,
+		Outbox:          outbox,
 		URL:             cfg.Sink.URL,
 		TableSubjectMap: cfg.Mapping.TableStreamMap,
 	})

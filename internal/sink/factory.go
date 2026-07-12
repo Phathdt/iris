@@ -14,21 +14,22 @@ import (
 // Config holds sink configuration
 type Config struct {
 	Type            string
-	Addr            string            // For Redis
-	Password        string            // For Redis
-	DB              int               // For Redis
-	Key             string            // For Redis List
-	TableStreamMap  map[string]string // For Redis Stream
-	MaxLen          int               // For Redis
-	ApproximateTrim bool              // For Redis Stream
-	Brokers         []string          // For Kafka
-	TableTopicMap   map[string]string // For Kafka
-	URL             string            // For NATS
-	TableSubjectMap map[string]string // For NATS
-	Path            string            // For file sink
-	MaxSize         int64             // For file sink
-	MaxFiles        int               // For file sink
-	PrettyPrint     bool              // For stdout sink
+	Addr            string              // For Redis
+	Password        string              // For Redis
+	DB              int                 // For Redis
+	Key             string              // For Redis List
+	TableStreamMap  map[string]string   // For Redis Stream
+	MaxLen          int                 // For Redis
+	ApproximateTrim bool                // For Redis Stream
+	Brokers         []string            // For Kafka
+	TableTopicMap   map[string]string   // For Kafka
+	Outbox          *kafka.OutboxConfig // For Kafka outbox column shaping (optional)
+	URL             string              // For NATS
+	TableSubjectMap map[string]string   // For NATS
+	Path            string              // For file sink
+	MaxSize         int64               // For file sink
+	MaxFiles        int                 // For file sink
+	PrettyPrint     bool                // For stdout sink
 }
 
 // SinkBuilder is a function that creates a sink from config
@@ -98,6 +99,7 @@ func buildKafkaSink(cfg Config) (cdc.Sink, error) {
 	return kafka.NewKafkaSink(kafka.Config{
 		Brokers:       cfg.Brokers,
 		TableTopicMap: cfg.TableTopicMap,
+		Outbox:        cfg.Outbox,
 	})
 }
 

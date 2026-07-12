@@ -59,6 +59,71 @@ sink:
 	}
 }
 
+func TestLoad_ValidYAML_WithKafkaOutbox(t *testing.T) {
+	content := `
+source:
+  type: postgres
+  dsn: postgres://user:pass@localhost:5432/testdb
+  slot_name: test_slot
+
+sink:
+  type: kafka
+  brokers:
+    - localhost:9092
+  outbox:
+    key_field: aggregate_id
+    route_field: event_type
+    payload_field: payload
+`
+
+	tmpFile := createTempFile(t, content)
+	defer os.Remove(tmpFile)
+
+	cfg, err := Load(tmpFile)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.Sink.Outbox == nil {
+		t.Fatal("Sink.Outbox = nil, want parsed outbox config")
+	}
+	if cfg.Sink.Outbox.KeyField != "aggregate_id" {
+		t.Errorf("Outbox.KeyField = %q, want %q", cfg.Sink.Outbox.KeyField, "aggregate_id")
+	}
+	if cfg.Sink.Outbox.RouteField != "event_type" {
+		t.Errorf("Outbox.RouteField = %q, want %q", cfg.Sink.Outbox.RouteField, "event_type")
+	}
+	if cfg.Sink.Outbox.PayloadField != "payload" {
+		t.Errorf("Outbox.PayloadField = %q, want %q", cfg.Sink.Outbox.PayloadField, "payload")
+	}
+}
+
+func TestLoad_KafkaWithoutOutbox_IsNil(t *testing.T) {
+	content := `
+source:
+  type: postgres
+  dsn: postgres://user:pass@localhost:5432/testdb
+  slot_name: test_slot
+
+sink:
+  type: kafka
+  brokers:
+    - localhost:9092
+`
+
+	tmpFile := createTempFile(t, content)
+	defer os.Remove(tmpFile)
+
+	cfg, err := Load(tmpFile)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.Sink.Outbox != nil {
+		t.Errorf("Sink.Outbox = %+v, want nil when no outbox block", cfg.Sink.Outbox)
+	}
+}
+
 func TestLoad_ValidYAML_WithTransform(t *testing.T) {
 	content := `
 source:

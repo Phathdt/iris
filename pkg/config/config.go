@@ -188,6 +188,25 @@ type SinkConfig struct {
 
 	// PrettyPrint enables pretty-printed JSON output (used when type="stdout")
 	PrettyPrint bool `yaml:"pretty_print,omitempty"`
+
+	// Outbox enables outbox column shaping for the Kafka sink (optional).
+	// When set, the Kafka message key, topic, and body are derived from
+	// columns in event.After. See OutboxConfig.
+	Outbox *OutboxConfig `yaml:"outbox,omitempty"`
+}
+
+// OutboxConfig maps outbox table columns to Kafka record fields.
+// Used only by the Kafka sink. Models the Debezium Outbox Event Router.
+type OutboxConfig struct {
+	// KeyField is the column whose value becomes the Kafka message key
+	// (e.g., "aggregate_id" to preserve per-aggregate ordering).
+	KeyField string `yaml:"key_field,omitempty"`
+
+	// RouteField is the column whose value becomes the topic (identity routing).
+	RouteField string `yaml:"route_field,omitempty"`
+
+	// PayloadField is the column whose value becomes the message body.
+	PayloadField string `yaml:"payload_field,omitempty"`
 }
 
 // Load loads configuration from a YAML file
