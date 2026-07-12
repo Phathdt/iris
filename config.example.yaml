@@ -10,6 +10,15 @@ source:
   slot_name: iris_slot
   # start_lsn: ""  # Optional: start from specific WAL position
 
+  # publication: pglogrepl_publication  # Optional: default "pglogrepl_publication"
+  # ensure_publication: true            # Optional: default true
+  # When true (default) and tables is non-empty, iris creates the publication
+  # on start if missing, or runs ALTER PUBLICATION ... SET TABLE if the table
+  # list differs from what's configured here. When tables is empty, iris only
+  # verifies the publication exists (no all-tables auto-management).
+  # Set ensure_publication: false to manage the publication yourself (e.g. via
+  # a migration) — required if the CDC user lacks table-owner privileges.
+
 transform:
   enabled: false
   type: wasm

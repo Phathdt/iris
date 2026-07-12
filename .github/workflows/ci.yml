@@ -40,6 +40,15 @@ jobs:
       - run: go mod download
       - run: go test -tags=integration -v -timeout 300s -run ^TestIntegration_ ./internal/...
 
+  test-e2e:
+    name: E2E Tests (Postgres WAL + Redpanda)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose -f tests/e2e/docker-compose.yml up --build --abort-on-container-exit --exit-code-from test
+      - if: always()
+        run: docker compose -f tests/e2e/docker-compose.yml down -v
+
   build:
     name: Build
     runs-on: ubuntu-latest

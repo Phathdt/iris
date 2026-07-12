@@ -26,6 +26,7 @@ func NewKafkaSink(cfg Config) (*KafkaSink, error) {
 
 	opts := []kgo.Opt{
 		kgo.SeedBrokers(cfg.Brokers...),
+		kgo.AllowAutoTopicCreation(),
 	}
 
 	client, err := kgo.NewClient(opts...)

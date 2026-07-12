@@ -16,4 +16,13 @@ type Config struct {
 	// StartOffset is the WAL position to start from (optional)
 	// If nil, starts from current WAL position
 	StartOffset *cdc.Offset
+
+	// Publication is the PostgreSQL publication name used for logical
+	// replication
+	Publication string
+
+	// EnsurePublication controls whether Start() auto-creates/syncs the
+	// publication from Tables. When false, the publication must already
+	// exist (matches pre-v0.1.1 behavior).
+	EnsurePublication bool
 }

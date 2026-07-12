@@ -24,6 +24,14 @@ CREATE TABLE products (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Full replica identity so UPDATE/DELETE WAL records include the complete
+-- "before" row (default identity only includes the primary key, and only
+-- when it changes on UPDATE), matching the pattern in
+-- internal/source/postgres/testhelpers_test.go.
+ALTER TABLE users REPLICA IDENTITY FULL;
+ALTER TABLE orders REPLICA IDENTITY FULL;
+ALTER TABLE products REPLICA IDENTITY FULL;
+
 -- Insert some initial data (will be captured by CDC)
 INSERT INTO users (name, email) VALUES
     ('Alice', 'alice@example.com'),

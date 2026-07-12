@@ -29,7 +29,8 @@ services:
       - --node-id=0
       - --kafka-addr=PLAINTEXT://0.0.0.0:9092
       - --advertise-kafka-addr=PLAINTEXT://redpanda:9092
-      - --set=redpanda.auto_create_topics_enabled=true
+      - --set
+      - redpanda.auto_create_topics_enabled=true
     ports:
       - "19092:9092"
     healthcheck:

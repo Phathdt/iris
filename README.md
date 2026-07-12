@@ -44,6 +44,11 @@ source:
     - users
     - orders
   slot_name: iris_slot
+  # publication: pglogrepl_publication  # Optional: default "pglogrepl_publication"
+  # ensure_publication: true            # Optional: default true — auto-create/sync
+  #                                       the publication from `tables` on start.
+  #                                       Set false to manage it yourself (e.g. via
+  #                                       a migration) for least-privilege CDC users.
 
 transform:
   enabled: false
@@ -249,6 +254,8 @@ See `examples/transforms/` for complete working examples.
 | `make test-unit`                   | Run unit tests only                                |
 | `make test-integration`            | Run integration tests (requires local PG)          |
 | `make test-integration-containers` | Run integration tests with testcontainers (Docker) |
+| `make test-e2e`                    | Run E2E tests (requires Docker Compose stack up)   |
+| `make test-e2e-docker`             | Run E2E tests via Docker Compose (Postgres + Redpanda) |
 | `make test-coverage`               | Run tests with coverage report                     |
 | `make test-race`                   | Run tests with race detector                       |
 | `make lint`                        | Run linter                                         |

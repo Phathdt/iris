@@ -19,12 +19,26 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-// getPostgresDSN returns the PostgreSQL DSN from environment or default
+// getPostgresDSN returns the PostgreSQL DSN from environment or default, for
+// ordinary (non-replication) SQL connections used to set up/verify test data.
 func getPostgresDSN() string {
 	if dsn := os.Getenv("TEST_POSTGRES_DSN"); dsn != "" {
 		return dsn
 	}
 	return "postgres://iris:iris@localhost:54321/testdb"
+}
+
+// getReplicationDSN returns the DSN iris's postgres source should use, with
+// replication=database appended so pgconn.Connect opens the connection in
+// logical replication mode (required for CREATE_REPLICATION_SLOT/
+// START_REPLICATION; a plain DSN causes those to be parsed as invalid SQL).
+func getReplicationDSN() string {
+	dsn := getPostgresDSN()
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+	return dsn + sep + "replication=database"
 }
 
 // getKafkaBrokers returns the Kafka broker list from environment or default
@@ -124,7 +138,7 @@ func TestE2E_PostgresToKafka_Basic(t *testing.T) {
 	cfg := config.Config{
 		Source: config.SourceConfig{
 			Type:     "postgres",
-			DSN:      dsn,
+			DSN:      getReplicationDSN(),
 			Tables:   []string{"users", "orders"},
 			SlotName: "iris_e2e_basic_slot",
 		},
@@ -214,7 +228,7 @@ func TestE2E_UpdateOperation(t *testing.T) {
 	cfg := config.Config{
 		Source: config.SourceConfig{
 			Type:     "postgres",
-			DSN:      dsn,
+			DSN:      getReplicationDSN(),
 			Tables:   []string{"users"},
 			SlotName: "iris_e2e_update_slot",
 		},
@@ -313,7 +327,7 @@ func TestE2E_DeleteOperation(t *testing.T) {
 	cfg := config.Config{
 		Source: config.SourceConfig{
 			Type:     "postgres",
-			DSN:      dsn,
+			DSN:      getReplicationDSN(),
 			Tables:   []string{"products"},
 			SlotName: "iris_e2e_delete_slot",
 		},
@@ -407,7 +421,7 @@ func TestE2E_MultipleTables(t *testing.T) {
 	cfg := config.Config{
 		Source: config.SourceConfig{
 			Type:     "postgres",
-			DSN:      dsn,
+			DSN:      getReplicationDSN(),
 			Tables:   []string{"users", "products"},
 			SlotName: "iris_e2e_multi_slot",
 		},

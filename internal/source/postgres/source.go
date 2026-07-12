@@ -33,6 +33,9 @@ func NewSource(cfg Config) (*PostgresSource, error) {
 	if cfg.DSN == "" {
 		return nil, fmt.Errorf("DSN is required")
 	}
+	if cfg.Publication == "" {
+		cfg.Publication = "pglogrepl_publication"
+	}
 
 	return &PostgresSource{
 		config:   cfg,
@@ -49,6 +52,13 @@ func (s *PostgresSource) Start(ctx context.Context) (<-chan cdc.RawEvent, error)
 	s.replConn, err = pgconn.Connect(ctx, s.config.DSN)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to PostgreSQL: %w", err)
+	}
+
+	if s.config.EnsurePublication {
+		if err := ensurePublication(ctx, s.replConn, s.config.Publication, s.config.Tables); err != nil {
+			s.replConn.Close(ctx)
+			return nil, fmt.Errorf("ensure publication: %w", err)
+		}
 	}
 
 	// Create replication slot if it doesn't exist
@@ -77,7 +87,7 @@ func (s *PostgresSource) Start(ctx context.Context) (<-chan cdc.RawEvent, error)
 		pglogrepl.StartReplicationOptions{
 			PluginArgs: []string{
 				"proto_version '1'",
-				"publication_names 'pglogrepl_publication'",
+				fmt.Sprintf("publication_names '%s'", s.config.Publication),
 			},
 		},
 	)

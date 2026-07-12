@@ -44,10 +44,21 @@ func NewPipeline(cfg config.Config, log logger.Logger, metrics observability.Met
 	logger := log.WithGroup("pipeline")
 
 	// 1. Create source
+	// keep in sync with config.Load()'s defaulting
+	publication := cfg.Source.Publication
+	if publication == "" {
+		publication = "pglogrepl_publication"
+	}
+	ensurePublication := true
+	if cfg.Source.EnsurePublication != nil {
+		ensurePublication = *cfg.Source.EnsurePublication
+	}
 	src, err := postgresSource.NewSource(postgresSource.Config{
-		DSN:      cfg.Source.DSN,
-		Tables:   cfg.Source.Tables,
-		SlotName: cfg.Source.SlotName,
+		DSN:               cfg.Source.DSN,
+		Tables:            cfg.Source.Tables,
+		SlotName:          cfg.Source.SlotName,
+		Publication:       publication,
+		EnsurePublication: ensurePublication,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create source: %w", err)

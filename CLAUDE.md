@@ -112,6 +112,8 @@ source:
   dsn: postgres://user:password@localhost:5432/mydb
   tables: [users, orders]
   slot_name: iris_slot
+  # publication: pglogrepl_publication  # Optional: default "pglogrepl_publication"
+  # ensure_publication: true            # Optional: default true
 
 transform:
   enabled: false
@@ -224,6 +226,7 @@ Example modules in `examples/transforms/` (Rust and TinyGo).
 
 - Go 1.26.0
 - Uses logical replication for PostgreSQL CDC (pgoutput plugin)
+- Publication management: when `source.ensure_publication` is true (default) and `source.tables` is non-empty, iris creates the publication on start if missing, or runs `ALTER PUBLICATION ... SET TABLE` if the table list differs — no manual migration needed. When `source.tables` is empty, iris only verifies the publication exists (no all-tables auto-management, since Postgres has no atomic alter path into/out of `FOR ALL TABLES`). Set `ensure_publication: false` to manage the publication yourself (e.g. via a migration) for least-privilege CDC users lacking table-owner privileges — this preserves the exact pre-v0.1.1 behavior. Logic in `internal/source/postgres/publication.go`.
 - WASM transforms use wazero runtime with `WithStartFunctions()` to skip `_start`
 - Sink types: Kafka (ProduceSync), Stdout, File
 - Sink factory pattern with registry-based builder registration

@@ -115,7 +115,10 @@ test-e2e:
 
 # Run E2E tests with Docker Compose
 test-e2e-docker:
-	docker-compose -f tests/e2e/docker-compose.yml up --build --abort-on-container-exit
+	docker compose -f tests/e2e/docker-compose.yml up --build --abort-on-container-exit --exit-code-from test; \
+	status=$$?; \
+	docker compose -f tests/e2e/docker-compose.yml down -v; \
+	exit $$status
 
 # Run tests with coverage
 test-coverage: $(COVERAGE_DIR)

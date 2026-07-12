@@ -105,6 +105,18 @@ type SourceConfig struct {
 	// StartLSN is the WAL position to start from (optional)
 	// If empty, starts from current WAL position
 	StartLSN string `yaml:"start_lsn,omitempty"`
+
+	// Publication is the PostgreSQL publication name used for logical
+	// replication (default: "pglogrepl_publication")
+	Publication string `yaml:"publication,omitempty"`
+
+	// EnsurePublication controls whether iris auto-creates/syncs the
+	// publication from Tables on start (default: true). Set to false to
+	// manage the publication manually (e.g. via a migration) when running
+	// with a least-privilege CDC user that lacks table-owner privileges.
+	// Uses *bool so an absent YAML key can be distinguished from an explicit
+	// "false" — see Load()'s defaulting.
+	EnsurePublication *bool `yaml:"ensure_publication,omitempty"`
 }
 
 // TransformModuleConfig holds configuration for a single WASM transform module
@@ -230,6 +242,15 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Observability.Tracing.SampleRate <= 0 {
 		cfg.Observability.Tracing.SampleRate = 1.0
+	}
+
+	// Set default source publication config
+	if cfg.Source.Publication == "" {
+		cfg.Source.Publication = "pglogrepl_publication"
+	}
+	if cfg.Source.EnsurePublication == nil {
+		t := true
+		cfg.Source.EnsurePublication = &t
 	}
 
 	if err := cfg.Validate(); err != nil {

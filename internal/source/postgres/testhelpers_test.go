@@ -28,12 +28,6 @@ type PostgresContainer struct {
 // It configures wal_level=logical for CDC support
 // It uses t.Cleanup() to ensure the container is stopped after the test completes
 func SetupPostgresContainer(t *testing.T) *PostgresContainer {
-	ctx := context.Background()
-
-	// Start PostgreSQL container (16-alpine with logical replication settings)
-	// Create an init script to set up tables and publication
-	tmpDir := t.TempDir()
-	initScriptPath := filepath.Join(tmpDir, "init.sql")
 	// Create tables BEFORE publication so they're included
 	initScript := `
 -- Create test tables
@@ -56,6 +50,41 @@ ALTER TABLE orders REPLICA IDENTITY FULL;
 -- Create publication for logical replication AFTER tables are defined
 CREATE PUBLICATION pglogrepl_publication FOR ALL TABLES;
 `
+	return setupPostgresContainerWithInit(t, initScript)
+}
+
+// SetupPostgresContainerNoPublication starts a PostgreSQL container with the same
+// tables as SetupPostgresContainer, but without pre-creating a publication. Used by
+// tests that exercise iris's own publication auto-create/sync logic.
+func SetupPostgresContainerNoPublication(t *testing.T) *PostgresContainer {
+	initScript := `
+-- Create test tables
+CREATE TABLE users (
+	id SERIAL PRIMARY KEY,
+	name TEXT NOT NULL,
+	email TEXT NOT NULL
+);
+
+CREATE TABLE orders (
+	id SERIAL PRIMARY KEY,
+	user_id INT NOT NULL,
+	amount DECIMAL(10,2) NOT NULL
+);
+
+-- Set REPLICA IDENTITY FULL for UPDATE/DELETE to include before data
+ALTER TABLE users REPLICA IDENTITY FULL;
+ALTER TABLE orders REPLICA IDENTITY FULL;
+`
+	return setupPostgresContainerWithInit(t, initScript)
+}
+
+// setupPostgresContainerWithInit starts a PostgreSQL container using the given init
+// script, shared by SetupPostgresContainer and SetupPostgresContainerNoPublication.
+func setupPostgresContainerWithInit(t *testing.T, initScript string) *PostgresContainer {
+	ctx := context.Background()
+
+	tmpDir := t.TempDir()
+	initScriptPath := filepath.Join(tmpDir, "init.sql")
 	if err := os.WriteFile(initScriptPath, []byte(initScript), 0o644); err != nil {
 		t.Fatalf("failed to create init script: %v", err)
 	}
