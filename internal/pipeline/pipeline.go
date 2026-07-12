@@ -111,19 +111,14 @@ func NewPipeline(cfg config.Config, log logger.Logger, metrics observability.Met
 	}
 
 	snk, err := factory.CreateSink(sink.Config{
-		Type:            cfg.Sink.Type,
-		Addr:            cfg.Sink.Addr,
-		Password:        cfg.Sink.Password,
-		DB:              cfg.Sink.DB,
-		Key:             cfg.Sink.Key,
-		TableStreamMap:  cfg.Mapping.TableStreamMap,
-		MaxLen:          cfg.Sink.MaxLen,
-		ApproximateTrim: cfg.Sink.ApproximateTrim,
-		Brokers:         cfg.Sink.Brokers,
-		TableTopicMap:   cfg.Mapping.TableStreamMap,
-		Outbox:          outbox,
-		URL:             cfg.Sink.URL,
-		TableSubjectMap: cfg.Mapping.TableStreamMap,
+		Type:          cfg.Sink.Type,
+		Brokers:       cfg.Sink.Brokers,
+		TableTopicMap: cfg.Mapping.TableStreamMap,
+		Outbox:        outbox,
+		Path:          cfg.Sink.Path,
+		MaxSize:       cfg.Sink.MaxSize,
+		MaxFiles:      cfg.Sink.MaxFiles,
+		PrettyPrint:   cfg.Sink.PrettyPrint,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create sink: %w", err)
@@ -133,14 +128,12 @@ func NewPipeline(cfg config.Config, log logger.Logger, metrics observability.Met
 	var dlqSink *dlq.DLQ
 	if cfg.DLQ != nil && cfg.DLQ.Enabled {
 		dlqRawSink, err := factory.CreateSink(sink.Config{
-			Type:            cfg.DLQ.Sink.Type,
-			Addr:            cfg.DLQ.Sink.Addr,
-			Password:        cfg.DLQ.Sink.Password,
-			DB:              cfg.DLQ.Sink.DB,
-			Key:             cfg.DLQ.Sink.Key,
-			MaxLen:          cfg.DLQ.Sink.MaxLen,
-			ApproximateTrim: cfg.DLQ.Sink.ApproximateTrim,
-			Brokers:         cfg.DLQ.Sink.Brokers,
+			Type:          cfg.DLQ.Sink.Type,
+			Brokers:       cfg.DLQ.Sink.Brokers,
+			TableTopicMap: cfg.Mapping.TableStreamMap,
+			Path:          cfg.DLQ.Sink.Path,
+			MaxSize:       cfg.DLQ.Sink.MaxSize,
+			MaxFiles:      cfg.DLQ.Sink.MaxFiles,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("create dlq sink: %w", err)

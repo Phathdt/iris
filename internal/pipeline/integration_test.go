@@ -3,8 +3,10 @@
 package pipeline
 
 import (
+	"bufio"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,10 +18,8 @@ import (
 	"iris/pkg/observability"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/redis/go-redis/v9"
 	"github.com/testcontainers/testcontainers-go"
 	pgcontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
-	rediscontainer "github.com/testcontainers/testcontainers-go/modules/redis"
 )
 
 // PostgresTestContainer wraps PostgreSQL container for pipeline tests
@@ -131,74 +131,41 @@ func (ptc *PostgresTestContainer) Close(t *testing.T) {
 	}
 }
 
-// RedisTestContainer wraps Redis container for pipeline tests
-type RedisTestContainer struct {
-	container *rediscontainer.RedisContainer
-	client    *redis.Client
-	addr      string
-}
-
-// startRedisForPipelineTest starts a Redis container
-func startRedisForPipelineTest(t *testing.T, ctx context.Context) *RedisTestContainer {
-	container, err := rediscontainer.RunContainer(ctx)
+// countJSONLines returns the number of JSON-line records currently
+// persisted at path. Missing file is treated as zero lines (the file
+// sink creates the file lazily on first write).
+func countJSONLines(t *testing.T, path string) int {
+	f, err := os.Open(path)
 	if err != nil {
-		t.Fatalf("failed to start Redis container: %v", err)
-	}
-
-	t.Cleanup(func() {
-		if err := container.Terminate(ctx); err != nil {
-			t.Logf("failed to terminate Redis container: %v", err)
+		if os.IsNotExist(err) {
+			return 0
 		}
-	})
-
-	// Get host and port
-	host, err := container.Host(ctx)
-	if err != nil {
-		t.Fatalf("failed to get Redis container host: %v", err)
+		t.Fatalf("failed to open output file: %v", err)
 	}
-	port, err := container.MappedPort(ctx, "6379")
-	if err != nil {
-		t.Fatalf("failed to get Redis container port: %v", err)
+	defer f.Close()
+
+	count := 0
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var raw map[string]interface{}
+		if err := json.Unmarshal(line, &raw); err != nil {
+			t.Fatalf("failed to unmarshal event line: %v", err)
+		}
+		count++
 	}
-
-	addr := fmt.Sprintf("%s:%s", host, port.Port())
-
-	// Create Redis client
-	client := redis.NewClient(&redis.Options{
-		Addr: addr,
-	})
-
-	// Test connection
-	if err := client.Ping(ctx).Err(); err != nil {
-		t.Fatalf("failed to ping Redis: %v", err)
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("failed to scan output file: %v", err)
 	}
-
-	return &RedisTestContainer{
-		container: container,
-		client:    client,
-		addr:      addr,
-	}
+	return count
 }
 
-// Addr returns the Redis address
-func (rtc *RedisTestContainer) Addr() string {
-	return rtc.addr
-}
-
-// Client returns the Redis client
-func (rtc *RedisTestContainer) Client() *redis.Client {
-	return rtc.client
-}
-
-// Close closes the Redis connection (cleanup is handled by t.Cleanup)
-func (rtc *RedisTestContainer) Close(t *testing.T) {
-	if err := rtc.client.Close(); err != nil {
-		t.Logf("failed to close Redis client: %v", err)
-	}
-}
-
-// TestIntegration_Pipeline_PostgresToRedisList tests full CDC pipeline with Redis List sink
-func TestIntegration_Pipeline_PostgresToRedisList(t *testing.T) {
+// TestIntegration_Pipeline_PostgresToFile tests full CDC pipeline with the file sink:
+// Postgres logical replication -> decode -> sink.Write -> JSON lines on disk.
+func TestIntegration_Pipeline_PostgresToFile(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -206,12 +173,17 @@ func TestIntegration_Pipeline_PostgresToRedisList(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	// Start containers
+	// Start Postgres container
 	pg := startPostgresForPipelineTest(t, ctx)
 	defer pg.Close(t)
 
-	redis := startRedisForPipelineTest(t, ctx)
-	defer redis.Close(t)
+	// Output file for the file sink
+	tmpDir, err := os.MkdirTemp("", "pipeline-file-sink")
+	if err != nil {
+		t.Fatalf("failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+	outputPath := filepath.Join(tmpDir, "events.jsonl")
 
 	// Create pipeline config
 	cfg := config.Config{
@@ -219,12 +191,11 @@ func TestIntegration_Pipeline_PostgresToRedisList(t *testing.T) {
 			Type:     "postgres",
 			DSN:      pg.ReplicationDSN(),
 			Tables:   []string{"users"},
-			SlotName: "pipeline_test_list_slot",
+			SlotName: "pipeline_test_file_slot",
 		},
 		Sink: config.SinkConfig{
-			Type: "redis",
-			Addr: redis.Addr(),
-			Key:  "pipeline:test:list",
+			Type: "file",
+			Path: outputPath,
 		},
 		Transform: &config.TransformConfig{
 			Enabled: false,
@@ -253,7 +224,7 @@ func TestIntegration_Pipeline_PostgresToRedisList(t *testing.T) {
 	// Insert test data via SQL
 	pg.ExecSQL(t, "INSERT INTO users (name, email) VALUES ($1, $2)", "Pipeline", "pipeline@test.com")
 
-	// Poll Redis for events with timeout
+	// Poll the output file for events with timeout
 	timeout := time.After(15 * time.Second)
 	eventFound := false
 
@@ -261,7 +232,7 @@ func TestIntegration_Pipeline_PostgresToRedisList(t *testing.T) {
 		select {
 		case <-timeout:
 			if !eventFound {
-				t.Fatal("timeout waiting for event in Redis List")
+				t.Fatal("timeout waiting for event in output file")
 			}
 			cancel() // Stop pipeline
 			return
@@ -273,119 +244,10 @@ func TestIntegration_Pipeline_PostgresToRedisList(t *testing.T) {
 			return
 
 		default:
-			// Check if event is in Redis
-			length, err := redis.Client().LLen(ctx, cfg.Sink.Key).Result()
-			if err != nil {
-				t.Logf("error checking Redis list length: %v", err)
-			} else if length > 0 {
-				t.Logf("found %d events in Redis list", length)
-
-				// Get the event
-				data, err := redis.Client().LIndex(ctx, cfg.Sink.Key, 0).Result()
-				if err != nil {
-					t.Logf("error getting event from Redis: %v", err)
-				} else {
-					t.Logf("event data: %s", data)
-					eventFound = true
-					cancel() // Stop pipeline
-					return
-				}
-			}
-
-			time.Sleep(500 * time.Millisecond)
-		}
-	}
-}
-
-// TestIntegration_Pipeline_PostgresToRedisStream tests full CDC pipeline with Redis Stream sink
-func TestIntegration_Pipeline_PostgresToRedisStream(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	// Start containers
-	pg := startPostgresForPipelineTest(t, ctx)
-	defer pg.Close(t)
-
-	redis := startRedisForPipelineTest(t, ctx)
-	defer redis.Close(t)
-
-	// Create pipeline config
-	cfg := config.Config{
-		Source: config.SourceConfig{
-			Type:     "postgres",
-			DSN:      pg.ReplicationDSN(),
-			Tables:   []string{"users"},
-			SlotName: "pipeline_test_stream_slot",
-		},
-		Sink: config.SinkConfig{
-			Type: "redis_stream",
-			Addr: redis.Addr(),
-		},
-		Mapping: config.MappingConfig{
-			TableStreamMap: map[string]string{
-				"users": "users_stream",
-			},
-		},
-		Transform: &config.TransformConfig{
-			Enabled: false,
-		},
-	}
-
-	// Create logger
-	log := logger.New("plain", "info")
-
-	// Create and start pipeline
-	pipe, err := NewPipeline(cfg, log, observability.NewNoopMetrics())
-	if err != nil {
-		t.Fatalf("failed to create pipeline: %v", err)
-	}
-	defer pipe.Close()
-
-	// Run pipeline in a goroutine
-	pipelineDone := make(chan error, 1)
-	go func() {
-		pipelineDone <- pipe.Run(ctx)
-	}()
-
-	// Give pipeline time to start replication
-	time.Sleep(2 * time.Second)
-
-	// Insert test data via SQL
-	pg.ExecSQL(t, "INSERT INTO users (name, email) VALUES ($1, $2)", "Stream", "stream@test.com")
-
-	// Poll Redis Stream for events with timeout
-	timeout := time.After(15 * time.Second)
-	eventFound := false
-	streamKey := "users_stream"
-
-	for {
-		select {
-		case <-timeout:
-			if !eventFound {
-				t.Fatal("timeout waiting for event in Redis Stream")
-			}
-			cancel() // Stop pipeline
-			return
-
-		case err := <-pipelineDone:
-			if !eventFound && err != context.Canceled {
-				t.Fatalf("pipeline error before event received: %v", err)
-			}
-			return
-
-		default:
-			// Check if event is in Redis Stream
-			entries, err := redis.Client().XRange(ctx, streamKey, "-", "+").Result()
-			if err != nil {
-				// Stream may not exist yet
-			} else if len(entries) > 0 {
-				t.Logf("found %d events in Redis stream", len(entries))
+			if countJSONLines(t, outputPath) > 0 {
+				t.Log("found event in output file")
 				eventFound = true
-				cancel()
+				cancel() // Stop pipeline
 				return
 			}
 

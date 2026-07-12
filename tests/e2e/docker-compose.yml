@@ -19,15 +19,24 @@ services:
       timeout: 5s
       retries: 5
 
-  redis:
-    image: redis:7-alpine
+  redpanda:
+    image: redpandadata/redpanda:v24.2.4
+    command:
+      - redpanda
+      - start
+      - --smp=1
+      - --overprovisioned
+      - --node-id=0
+      - --kafka-addr=PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr=PLAINTEXT://redpanda:9092
+      - --set=redpanda.auto_create_topics_enabled=true
     ports:
-      - "63791:6379"
+      - "19092:9092"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true'"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
 
   test:
     build:
@@ -36,10 +45,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
+      redpanda:
         condition: service_healthy
     environment:
       TEST_POSTGRES_DSN: postgres://iris:iris@postgres:5432/testdb
-      TEST_REDIS_ADDR: redis:6379
+      TEST_KAFKA_BROKERS: redpanda:9092
       E2E_TEST: "1"
     command: go test ./tests/e2e/... -v -count=1

@@ -149,33 +149,11 @@ type TransformConfig struct {
 
 // SinkConfig holds the sink configuration
 type SinkConfig struct {
-	// Type is the sink type ("redis" for list, "redis_stream" for stream)
+	// Type is the sink type ("kafka", "stdout", or "file")
 	Type string `yaml:"type"`
-
-	// Addr is the Redis server address (e.g., "localhost:6379")
-	Addr string `yaml:"addr"`
-
-	// Password is the Redis password (optional)
-	Password string `yaml:"password,omitempty"`
-
-	// DB is the Redis database number (default 0)
-	DB int `yaml:"db,omitempty"`
-
-	// Key is the Redis list key for CDC events (used when type="redis")
-	Key string `yaml:"key,omitempty"`
-
-	// MaxLen trims the list/stream to maximum length (0 = no trimming)
-	MaxLen int `yaml:"max_len,omitempty"`
-
-	// ApproximateTrim uses ~MAXLEN for better performance (default: false)
-	// Only used when type="redis_stream"
-	ApproximateTrim bool `yaml:"approximate_trim,omitempty"`
 
 	// Brokers is the list of Kafka broker addresses (used when type="kafka")
 	Brokers []string `yaml:"brokers,omitempty"`
-
-	// URL is the NATS server URL (used when type="nats")
-	URL string `yaml:"url,omitempty"`
 
 	// Path is the output file path (used when type="file")
 	Path string `yaml:"path,omitempty"`
@@ -313,24 +291,9 @@ func (c *Config) Validate() error {
 // validateSink validates a sink configuration with a given prefix for error messages
 func validateSink(s SinkConfig, prefix string) error {
 	switch s.Type {
-	case "redis":
-		if s.Addr == "" {
-			return fmt.Errorf("%s.addr is required for redis sink", prefix)
-		}
-		if s.Key == "" {
-			return fmt.Errorf("%s.key is required for redis list sink", prefix)
-		}
-	case "redis_stream":
-		if s.Addr == "" {
-			return fmt.Errorf("%s.addr is required for redis_stream sink", prefix)
-		}
 	case "kafka":
 		if len(s.Brokers) == 0 {
 			return fmt.Errorf("%s.brokers is required for kafka sink", prefix)
-		}
-	case "nats":
-		if s.URL == "" {
-			return fmt.Errorf("%s.url is required for nats sink", prefix)
 		}
 	case "file":
 		if s.Path == "" {

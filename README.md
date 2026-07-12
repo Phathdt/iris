@@ -5,7 +5,7 @@
 Iris is a lightweight Change Data Capture (CDC) pipeline that reads database change events, transforms them using WebAssembly, and streams to message systems.
 
 ```
-Postgres → Iris → WASM Transform → Redis/Kafka/NATS
+Postgres → Iris → WASM Transform → Kafka
 ```
 
 ## Features
@@ -13,10 +13,9 @@ Postgres → Iris → WASM Transform → Redis/Kafka/NATS
 - **Lightweight CDC engine** - Replaces heavy stacks like Debezium + Kafka Connect for small use cases
 - **WASM transforms** - Custom event filtering and transformation via WebAssembly (Rust, TinyGo)
 - **Transform chaining** - Apply multiple WASM modules sequentially
-- **Redis List and Stream sinks** - Push events to Redis Lists (LPUSH) or Streams (XADD) with automatic trimming
 - **Kafka sink** - Stream events to Apache Kafka topics, with optional outbox column shaping (key/topic/body from row columns, à la Debezium Outbox Event Router)
-- **NATS JetStream sink** - Publish events to NATS JetStream subjects
-- **Table-to-stream mapping** - Route table changes to dedicated Redis Stream keys, Kafka topics, or NATS subjects
+- **Stdout and file sinks** - Write CDC events to stdout or JSON-line files (with rotation) for dev/debug
+- **Table-to-topic mapping** - Route table changes to dedicated Kafka topics
 - **Dead letter queue** - Failed events routed to a DLQ sink after retry exhaustion
 - **Retry with backoff** - Configurable retry attempts and delay for transform/sink operations
 - **Prometheus metrics** - Events/sec, replication lag, transform/sink latency histograms, error counters
@@ -57,35 +56,18 @@ transform:
   #   - path: ./transforms/filter.wasm
   #   - path: ./transforms/enrich.wasm
 
-# Option 1: Redis List sink
+# Option 1: Kafka sink
 sink:
-  type: redis
-  addr: localhost:6379
-  key: cdc:events
-  max_len: 10000
+  type: kafka
+  brokers:
+    - localhost:9092
+  # Optional: map tables to topics (defaults to "cdc.{table}")
+mapping:
+  table_stream_map:
+    users: users-topic
+    orders: orders-topic
 
-# Option 2: Redis Stream sink
-# sink:
-#   type: redis_stream
-#   addr: localhost:6379
-#   max_len: 10000
-# mapping:
-#   table_stream_map:
-#     users: cdc:users
-#     orders: cdc:orders
-
-# Option 3: Kafka sink
-# sink:
-#   type: kafka
-#   brokers:
-#     - localhost:9092
-#   # Optional: map tables to topics
-# mapping:
-#   table_stream_map:
-#     users: users-topic
-#     orders: orders-topic
-
-# Option 3b: Kafka sink with outbox column shaping
+# Option 1b: Kafka sink with outbox column shaping
 # Derive the Kafka message key, topic, and body from columns in event.After
 # (models the Debezium Outbox Event Router). Lets Iris replace a hand-rolled
 # outbox-replayer while preserving per-aggregate ordering (key = aggregate_id).
@@ -100,23 +82,25 @@ sink:
 #     route_field: event_type   # topic = value of this column (identity routing)
 #     payload_field: payload    # message body = JSON of this column
 
-# Option 4: NATS JetStream sink
+# Option 2: Stdout sink (dev/debug)
 # sink:
-#   type: nats
-#   url: nats://localhost:4222
-# mapping:
-#   table_stream_map:
-#     users: app.users
-#     orders: app.orders
+#   type: stdout
+#   pretty_print: false
+
+# Option 3: File sink (with optional rotation)
+# sink:
+#   type: file
+#   path: ./events.jsonl
+#   max_size: 104857600
+#   max_files: 5
 
 # Dead letter queue (optional)
 dlq:
   enabled: true
   sink:
-    type: redis_stream
-    addr: localhost:6379
-    key: cdc:dlq
-    max_len: 10000
+    type: kafka
+    brokers:
+      - localhost:9092
 
 # Retry configuration (optional)
 retry:
@@ -168,10 +152,9 @@ observability:
        v
 ┌─────────────┐
 │ Stream Sink │
-│ Redis List  │  LPUSH + LTRIM
-│ Redis Stream│  XADD + XTRIM
 │ Kafka       │  Produce to topic
-│ NATS JS     │  Publish to subject
+│ Stdout      │  JSON to stdout
+│ File        │  JSON lines with rotation
 └─────────────┘
 ```
 
@@ -264,7 +247,7 @@ See `examples/transforms/` for complete working examples.
 | `make build`                       | Build the binary                                   |
 | `make test`                        | Run all tests                                      |
 | `make test-unit`                   | Run unit tests only                                |
-| `make test-integration`            | Run integration tests (requires local PG + Redis)  |
+| `make test-integration`            | Run integration tests (requires local PG)          |
 | `make test-integration-containers` | Run integration tests with testcontainers (Docker) |
 | `make test-coverage`               | Run tests with coverage report                     |
 | `make test-race`                   | Run tests with race detector                       |
@@ -291,9 +274,9 @@ iris/
 │   │   └── chain/         # Transform chain (multiple WASM modules)
 │   ├── sink/
 │   │   ├── factory.go     # Registry-based sink factory
-│   │   ├── redis/         # Redis List + Stream sinks
 │   │   ├── kafka/         # Kafka sink (franz-go)
-│   │   └── nats/          # NATS JetStream sink (nats.go)
+│   │   ├── stdout/        # Stdout sink (dev/debug)
+│   │   └── file/          # File sink with rotation
 │   ├── dlq/               # Dead letter queue
 │   ├── offset/
 │   │   └── file/          # File-based offset store
@@ -337,10 +320,10 @@ Compatible with Jaeger, Tempo, and any OTLP-compatible collector.
 
 ## Use Cases
 
-- **Cache sync** - Postgres → Iris → Redis List
-- **Event streaming** - Postgres → Iris → Redis Stream → Consumers
-- **NATS event bus** - Postgres → Iris → NATS JetStream → Microservices
-- **Table-specific routing** - Postgres (users, orders) → Iris → Separate Redis Streams/Kafka topics/NATS subjects per table
+- **Event streaming** - Postgres → Iris → Kafka topics → Consumers
+- **Outbox pattern** - Postgres outbox table → Iris → Kafka (key/topic/body derived from row columns)
+- **Table-specific routing** - Postgres (users, orders) → Iris → Separate Kafka topics per table
+- **Local dev/debug** - Postgres → Iris → stdout or JSON-line file
 
 ## License
 

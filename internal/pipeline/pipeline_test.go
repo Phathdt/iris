@@ -98,7 +98,7 @@ func (m *MockSink) Close() error {
 // TestNewPipeline_ValidConfig tests pipeline creation with valid configuration
 func TestNewPipeline_ValidConfig(t *testing.T) {
 	// This test verifies the pipeline can be created with valid config
-	// Note: Actual pipeline creation requires real Postgres/Redis connections
+	// Note: Actual pipeline creation requires real Postgres/Kafka connections
 	// Integration tests for full pipeline are in tests/e2e/
 
 	cfg := config.Config{
@@ -108,17 +108,16 @@ func TestNewPipeline_ValidConfig(t *testing.T) {
 			SlotName: "test_slot",
 		},
 		Sink: config.SinkConfig{
-			Type: "redis",
-			Addr: "localhost:6379",
-			Key:  "test:cdc",
+			Type:    "kafka",
+			Brokers: []string{"localhost:9092"},
 		},
 	}
 
-	// Pipeline creation will fail without actual DB connections
+	// Pipeline creation will fail without actual DB/Kafka connections
 	// This is expected behavior - the test verifies error handling
 	_, err := NewPipeline(cfg, logger.New("plain", "info"), observability.NewNoopMetrics())
 	if err == nil {
-		t.Skip("Skipping - requires actual Postgres/Redis connections")
+		t.Skip("Skipping - requires actual Postgres/Kafka connections")
 	}
 	// Error is expected when connections fail
 	t.Logf("NewPipeline failed as expected (no real DB): %v", err)

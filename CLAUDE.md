@@ -32,7 +32,7 @@ make build                    # Build binary
 ```bash
 make test                          # All tests
 make test-unit                     # Unit tests only
-make test-integration              # Integration tests (requires PostgreSQL + Redis)
+make test-integration              # Integration tests (requires PostgreSQL)
 make test-integration-containers   # Integration tests with testcontainers (auto-manages Docker)
 make test-coverage                 # With coverage report
 make test-race                     # Race detector
@@ -85,9 +85,9 @@ iris/
 │   │   └── chain/             # Transform chain (multiple WASM modules)
 │   ├── sink/
 │   │   ├── factory.go         # Registry-based sink factory
-│   │   ├── redis/             # Redis List + Stream sinks
 │   │   ├── kafka/             # Kafka sink (franz-go)
-│   │   └── nats/              # NATS JetStream sink (nats.go)
+│   │   ├── stdout/            # Stdout sink (dev/debug)
+│   │   └── file/               # File sink with rotation
 │   ├── dlq/                   # Dead letter queue
 │   ├── offset/
 │   │   └── file/              # File-based offset store
@@ -123,47 +123,36 @@ transform:
   #   - path: ./transforms/filter.wasm
   #   - path: ./transforms/enrich.wasm
 
-# Sink option 1: Redis List (LPUSH + LTRIM)
+# Sink option 1: Kafka (default)
 sink:
-  type: redis
-  addr: localhost:6379
-  key: cdc:events
-  max_len: 10000
+  type: kafka
+  brokers:
+    - localhost:9092
+  # Optional outbox column shaping (key/topic/body from event.After columns):
+  # outbox:
+  #   key_field: aggregate_id   # Kafka message key (per-aggregate ordering)
+  #   route_field: event_type   # topic = value of this column (identity routing)
+  #   payload_field: payload    # message body = JSON of this column
 
-# Sink option 2: Redis Stream (XADD + XTRIM)
+# Sink option 2: Stdout (dev/debug)
 # sink:
-#   type: redis_stream
-#   addr: localhost:6379
-#   max_len: 10000
-# mapping:
-#   table_stream_map:
-#     users: cdc:users
-#     orders: cdc:orders
+#   type: stdout
+#   pretty_print: false
 
-# Sink option 3: Kafka
+# Sink option 3: File (with optional rotation)
 # sink:
-#   type: kafka
-#   brokers:
-#     - localhost:9092
-#   # Optional outbox column shaping (key/topic/body from event.After columns):
-#   outbox:
-#     key_field: aggregate_id   # Kafka message key (per-aggregate ordering)
-#     route_field: event_type   # topic = value of this column (identity routing)
-#     payload_field: payload    # message body = JSON of this column
-
-# Sink option 4: NATS JetStream
-# sink:
-#   type: nats
-#   url: nats://localhost:4222
+#   type: file
+#   path: ./events.jsonl
+#   max_size: 104857600
+#   max_files: 5
 
 # Dead letter queue (optional)
 dlq:
   enabled: true
   sink:
-    type: redis_stream
-    addr: localhost:6379
-    key: cdc:dlq
-    max_len: 10000
+    type: kafka
+    brokers:
+      - localhost:9092
 
 # Retry configuration (optional)
 retry:
@@ -205,15 +194,13 @@ observability:
 
 - **pgx/v5** - PostgreSQL driver
 - **pglogrepl** - Logical replication protocol
-- **go-redis/v9** - Redis client
 - **franz-go** - Kafka client (twmb/franz-go)
-- **nats.go** - NATS client with JetStream (nats-io/nats.go)
 - **wazero** - WASM runtime (zero dependencies)
 - **urfave/cli/v2** - CLI framework
 - **yaml.v3** - YAML parsing
 - **prometheus/client_golang** - Prometheus metrics
 - **go.opentelemetry.io/otel** - OpenTelemetry tracing (OTLP/gRPC exporter)
-- **testcontainers-go** - Integration test containers (PostgreSQL, Redis)
+- **testcontainers-go** - Integration test containers (PostgreSQL)
 
 ## WASM Transform ABI
 
@@ -238,7 +225,7 @@ Example modules in `examples/transforms/` (Rust and TinyGo).
 - Go 1.26.0
 - Uses logical replication for PostgreSQL CDC (pgoutput plugin)
 - WASM transforms use wazero runtime with `WithStartFunctions()` to skip `_start`
-- Sink types: Redis List (LPUSH+LTRIM), Redis Stream (XADD+XTRIM), Kafka (ProduceSync), NATS JetStream (Publish), Stdout, File
+- Sink types: Kafka (ProduceSync), Stdout, File
 - Sink factory pattern with registry-based builder registration
 - Sinks handle JSON encoding internally
 - Kafka outbox shaping: optional `sink.outbox` block ({key_field, route_field, payload_field}) makes the Kafka sink derive message key/topic/body from columns in `event.After` (models Debezium Outbox Event Router); missing/null/empty column falls back to default behavior per field. Logic in `internal/sink/kafka/shaper.go`.
@@ -255,5 +242,5 @@ Example modules in `examples/transforms/` (Rust and TinyGo).
 - Unit tests: No external dependencies (`make test-unit`)
 - Integration tests with testcontainers: Require Docker (`make test-integration-containers`)
   - Uses `//go:build integration` build tag
-  - Auto-manages PostgreSQL and Redis containers via testcontainers-go
-- E2E tests: Use Docker Compose (see `tests/e2e/`)
+  - Auto-manages a PostgreSQL container via testcontainers-go
+- E2E tests: Use Docker Compose with a Postgres + Redpanda (Kafka) stack (see `tests/e2e/`)

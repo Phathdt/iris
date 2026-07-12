@@ -22,7 +22,7 @@ func main() {
 
 	app := &cli.App{
 		Name:    "iris",
-		Usage:   "PostgreSQL to Redis CDC pipeline",
+		Usage:   "PostgreSQL to Kafka CDC pipeline",
 		Version: config.Version(),
 		Flags: []cli.Flag{
 			&cli.StringFlag{

@@ -1,5 +1,5 @@
 # Iris CDC Pipeline Configuration
-# PostgreSQL to Redis Change Data Capture
+# PostgreSQL to Kafka Change Data Capture
 
 source:
   type: postgres
@@ -27,74 +27,51 @@ transform:
   # When modules is specified, path is ignored
 
 sink:
-  # Option 1: Redis List sink (LPUSH + LTRIM)
-  # type: redis
-  # addr: localhost:6379
-  # # password: ""                  # Optional: Redis password
-  # # db: 0                         # Optional: Redis database number
-  # key: cdc:events
-  # max_len: 10000                  # Trim list to max length (0 = no trimming)
-
-  # Option 2: Redis Stream sink (XADD + XTRIM)
-  type: redis_stream
-  addr: localhost:6379
-  # password: ""                    # Optional: Redis password
-  # db: 0                           # Optional: Redis database number
-  max_len: 10000                    # Trim stream to max length (0 = no trimming)
-  # approximate_trim: false         # Optional: use ~MAXLEN for better performance
-
-  # Option 3: Kafka sink
-  # type: kafka
-  # brokers:
-  #   - localhost:9092
-  # # Uses mapping.table_stream_map for topic routing (defaults to "cdc.{table}")
-  # # Optional outbox column shaping: derive key/topic/body from columns in
-  # # event.After (models Debezium Outbox Event Router). When omitted, the sink
-  # # keeps default behavior (key=table, topic=cdc.{table}, body=full envelope).
-  # # A missing/null/empty column falls back to that default per field.
+  # Option 1: Kafka sink (default)
+  type: kafka
+  brokers:
+    - localhost:9092
+  # Uses mapping.table_stream_map for topic routing (defaults to "cdc.{table}")
+  # Optional outbox column shaping: derive key/topic/body from columns in
+  # event.After (models Debezium Outbox Event Router). When omitted, the sink
+  # keeps default behavior (key=table, topic=cdc.{table}, body=full envelope).
+  # A missing/null/empty column falls back to that default per field.
   # outbox:
   #   key_field: aggregate_id   # Kafka message key (preserves per-aggregate ordering)
   #   route_field: event_type   # topic = value of this column (identity routing)
   #   payload_field: payload    # message body = JSON of this column
 
-  # Option 4: Stdout sink (for debugging/development)
+  # Option 2: Stdout sink (for debugging/development)
   # Writes CDC events as JSON to stdout
   # type: stdout
   # pretty_print: false             # Optional: pretty-print JSON output
 
-  # Option 5: File sink (for logging to file)
+  # Option 3: File sink (for logging to file)
   # Writes CDC events as JSON lines to a file with optional rotation
   # type: file
   # path: ./events.jsonl
   # max_size: 104857600            # Optional: rotate when file reaches 100MB
   # max_files: 5                   # Optional: keep up to 5 rotated files
 
-  # Option 6: NATS JetStream sink
-  # Publishes CDC events to NATS JetStream subjects
-  # type: nats
-  # url: nats://localhost:4222
-  # # Uses mapping.table_stream_map for subject routing (defaults to "cdc.{table}")
-
 # Mapping configuration (optional)
-# Maps source tables to destination keys/topics
-# Used by redis_stream (stream keys) and kafka (topic names)
-# If omitted, defaults to "cdc:{table}" (redis) or "cdc.{table}" (kafka)
+# Maps source tables to Kafka topic names
+# Used by the kafka sink
+# If omitted, defaults to "cdc.{table}"
 # mapping:
 #   table_stream_map:
-#     users: cdc:users
-#     orders: cdc:orders
+#     users: cdc.users
+#     orders: cdc.orders
 
 # Dead Letter Queue (optional)
 # Events failing transform or sink after retries are sent here
 # dlq:
 #   enabled: true
 #   sink:
-#     type: redis
-#     addr: localhost:6379
-#     key: cdc:dlq
-#     max_len: 10000
-#   # Note: For kafka/redis_stream DLQ sinks, events go to default destinations
-#   # (cdc.dlq for kafka, cdc:dlq for redis_stream) since DLQ has no table mapping.
+#     type: kafka
+#     brokers:
+#       - localhost:9092
+#   # Note: The DLQ sink has no table mapping, so kafka events go to the
+#   # default topic (cdc.{table}) unless mapping.table_stream_map is set.
 
 # Retry configuration (optional)
 # retry:

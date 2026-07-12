@@ -101,11 +101,11 @@ test:
 test-unit:
 	$(GOTEST) $(TEST_FLAGS) $(TEST_SHORT) -timeout 60s ./pkg/... ./internal/...
 
-# Run integration tests only (require PostgreSQL + Redis)
+# Run integration tests only (require PostgreSQL)
 test-integration:
 	$(GOTEST) $(TEST_FLAGS) -timeout $(TEST_TIMEOUT) -run Integration ./internal/...
 
-# Run integration tests with testcontainers-go (auto-manages Redis)
+# Run integration tests with testcontainers-go (auto-manages PostgreSQL)
 test-integration-containers:
 	$(GOTEST) $(TEST_FLAGS) -tags=integration -timeout $(TEST_TIMEOUT) ./internal/...
 

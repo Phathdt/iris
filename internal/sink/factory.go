@@ -5,31 +5,20 @@ import (
 
 	"iris/internal/sink/file"
 	"iris/internal/sink/kafka"
-	natssink "iris/internal/sink/nats"
-	"iris/internal/sink/redis"
 	"iris/internal/sink/stdout"
 	"iris/pkg/cdc"
 )
 
 // Config holds sink configuration
 type Config struct {
-	Type            string
-	Addr            string              // For Redis
-	Password        string              // For Redis
-	DB              int                 // For Redis
-	Key             string              // For Redis List
-	TableStreamMap  map[string]string   // For Redis Stream
-	MaxLen          int                 // For Redis
-	ApproximateTrim bool                // For Redis Stream
-	Brokers         []string            // For Kafka
-	TableTopicMap   map[string]string   // For Kafka
-	Outbox          *kafka.OutboxConfig // For Kafka outbox column shaping (optional)
-	URL             string              // For NATS
-	TableSubjectMap map[string]string   // For NATS
-	Path            string              // For file sink
-	MaxSize         int64               // For file sink
-	MaxFiles        int                 // For file sink
-	PrettyPrint     bool                // For stdout sink
+	Type          string
+	Brokers       []string            // For Kafka
+	TableTopicMap map[string]string   // For Kafka
+	Outbox        *kafka.OutboxConfig // For Kafka outbox column shaping (optional)
+	Path          string              // For file sink
+	MaxSize       int64               // For file sink
+	MaxFiles      int                 // For file sink
+	PrettyPrint   bool                // For stdout sink
 }
 
 // SinkBuilder is a function that creates a sink from config
@@ -47,10 +36,7 @@ func NewFactory() *SinkRegistry {
 	}
 
 	// Register built-in sink types
-	r.Register("redis", buildRedisListSink)
-	r.Register("redis_stream", buildRedisStreamSink)
 	r.Register("kafka", buildKafkaSink)
-	r.Register("nats", buildNATSSink)
 	r.Register("stdout", buildStdoutSink)
 	r.Register("file", buildFileSink)
 
@@ -71,43 +57,12 @@ func (r *SinkRegistry) CreateSink(cfg Config) (cdc.Sink, error) {
 	return builder(cfg)
 }
 
-// buildRedisListSink creates a Redis List sink
-func buildRedisListSink(cfg Config) (cdc.Sink, error) {
-	return redis.NewRedisSink(redis.Config{
-		Addr:     cfg.Addr,
-		Password: cfg.Password,
-		DB:       cfg.DB,
-		Key:      cfg.Key,
-		MaxLen:   cfg.MaxLen,
-	})
-}
-
-// buildRedisStreamSink creates a Redis Stream sink
-func buildRedisStreamSink(cfg Config) (cdc.Sink, error) {
-	return redis.NewRedisStreamSink(redis.StreamConfig{
-		Addr:            cfg.Addr,
-		Password:        cfg.Password,
-		DB:              cfg.DB,
-		TableStreamMap:  cfg.TableStreamMap,
-		MaxLen:          cfg.MaxLen,
-		ApproximateTrim: cfg.ApproximateTrim,
-	})
-}
-
 // buildKafkaSink creates a Kafka sink
 func buildKafkaSink(cfg Config) (cdc.Sink, error) {
 	return kafka.NewKafkaSink(kafka.Config{
 		Brokers:       cfg.Brokers,
 		TableTopicMap: cfg.TableTopicMap,
 		Outbox:        cfg.Outbox,
-	})
-}
-
-// buildNATSSink creates a NATS JetStream sink
-func buildNATSSink(cfg Config) (cdc.Sink, error) {
-	return natssink.NewNATSSink(natssink.Config{
-		URL:             cfg.URL,
-		TableSubjectMap: cfg.TableSubjectMap,
 	})
 }
 

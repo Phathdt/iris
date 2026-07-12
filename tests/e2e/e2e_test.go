@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,7 +16,7 @@ import (
 	"iris/pkg/observability"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/redis/go-redis/v9"
+	"github.com/twmb/franz-go/pkg/kgo"
 )
 
 // getPostgresDSN returns the PostgreSQL DSN from environment or default
@@ -26,12 +27,12 @@ func getPostgresDSN() string {
 	return "postgres://iris:iris@localhost:54321/testdb"
 }
 
-// getRedisAddr returns the Redis address from environment or default
-func getRedisAddr() string {
-	if addr := os.Getenv("TEST_REDIS_ADDR"); addr != "" {
-		return addr
+// getKafkaBrokers returns the Kafka broker list from environment or default
+func getKafkaBrokers() []string {
+	if brokers := os.Getenv("TEST_KAFKA_BROKERS"); brokers != "" {
+		return strings.Split(brokers, ",")
 	}
-	return "localhost:63791"
+	return []string{"localhost:19092"}
 }
 
 // connectToPostgres creates a test database connection
@@ -47,22 +48,58 @@ func connectToPostgres(t *testing.T, dsn string) *sql.DB {
 	return db
 }
 
-// connectToRedis creates a test Redis client
-func connectToRedis(t *testing.T, addr string) *redis.Client {
+// newKafkaConsumer creates a franz-go client that consumes the given topics
+// from the beginning of the log under a fresh, unique consumer group. This
+// lets each test independently replay the full topic history and filter for
+// its own records, so tests don't need to coordinate offsets with each other.
+func newKafkaConsumer(t *testing.T, brokers []string, topics ...string) *kgo.Client {
 	t.Helper()
-	client := redis.NewClient(&redis.Options{
-		Addr: addr,
-	})
-	if err := client.Ping(context.Background()).Err(); err != nil {
-		t.Fatalf("failed to ping redis: %v", err)
+	group := fmt.Sprintf("iris-e2e-%d", time.Now().UnixNano())
+	client, err := kgo.NewClient(
+		kgo.SeedBrokers(brokers...),
+		kgo.ConsumeTopics(topics...),
+		kgo.ConsumerGroup(group),
+		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
+	)
+	if err != nil {
+		t.Fatalf("failed to create kafka consumer: %v", err)
 	}
+	t.Cleanup(client.Close)
 	return client
 }
 
-// cleanupRedis clears the test key (works for both list and stream)
-func cleanupRedis(t *testing.T, client *redis.Client, key string) {
+// pollKafkaUntil polls the consumer, decoding each record as a CDC event and
+// invoking process on it, until process reports the awaited condition is
+// satisfied or the timeout elapses. Returns false on timeout.
+func pollKafkaUntil(t *testing.T, client *kgo.Client, timeout time.Duration, process func(ev map[string]any) bool) bool {
 	t.Helper()
-	client.Del(context.Background(), key)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	satisfied := false
+	for !satisfied {
+		fetches := client.PollFetches(ctx)
+		if ctx.Err() != nil {
+			return false
+		}
+		for _, e := range fetches.Errors() {
+			t.Logf("kafka fetch error (topic=%s partition=%d): %v", e.Topic, e.Partition, e.Err)
+		}
+		fetches.EachRecord(func(record *kgo.Record) {
+			if satisfied {
+				return
+			}
+			var ev map[string]any
+			if err := json.Unmarshal(record.Value, &ev); err != nil {
+				t.Logf("failed to unmarshal kafka record: %v", err)
+				return
+			}
+			if process(ev) {
+				satisfied = true
+			}
+		})
+	}
+	return true
 }
 
 // skipIfNoE2E skips the test if E2E_TEST is not set
@@ -72,16 +109,16 @@ func skipIfNoE2E(t *testing.T) {
 	}
 }
 
-// TestE2E_PostgresToRedis_Basic tests the basic CDC pipeline without transform
-func TestE2E_PostgresToRedis_Basic(t *testing.T) {
+// TestE2E_PostgresToKafka_Basic tests the basic CDC pipeline without transform
+func TestE2E_PostgresToKafka_Basic(t *testing.T) {
 	skipIfNoE2E(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	dsn := getPostgresDSN()
-	redisAddr := getRedisAddr()
-	testKey := "e2e:cdc:events:basic"
+	brokers := getKafkaBrokers()
+	usersTopic := "cdc.users"
 
 	// 1. Create pipeline config
 	cfg := config.Config{
@@ -93,9 +130,8 @@ func TestE2E_PostgresToRedis_Basic(t *testing.T) {
 		},
 		Transform: nil, // No transform
 		Sink: config.SinkConfig{
-			Type: "redis",
-			Addr: redisAddr,
-			Key:  testKey,
+			Type:    "kafka",
+			Brokers: brokers,
 		},
 	}
 
@@ -128,21 +164,21 @@ func TestE2E_PostgresToRedis_Basic(t *testing.T) {
 		t.Fatalf("failed to insert test data: %v", err)
 	}
 
-	// 5. Wait for event in Redis
-	redisClient := connectToRedis(t, redisAddr)
-	defer cleanupRedis(t, redisClient, testKey)
+	// 5. Wait for event on the Kafka topic
+	consumer := newKafkaConsumer(t, brokers, usersTopic)
 
 	var eventData map[string]any
-	if !eventuallyHelper(t, func() bool {
-		result, err := redisClient.LRange(ctx, testKey, 0, -1).Result()
-		if err != nil || len(result) == 0 {
+	if !pollKafkaUntil(t, consumer, 15*time.Second, func(ev map[string]any) bool {
+		after, ok := ev["after"].(map[string]any)
+		if !ok {
 			return false
 		}
-		if err := json.Unmarshal([]byte(result[0]), &eventData); err != nil {
+		if after["name"] != testName {
 			return false
 		}
+		eventData = ev
 		return true
-	}, 15*time.Second, 500*time.Millisecond, "timeout waiting for CDC event") {
+	}) {
 		t.Fatal("timeout waiting for CDC event")
 	}
 
@@ -161,7 +197,7 @@ func TestE2E_PostgresToRedis_Basic(t *testing.T) {
 		t.Errorf("expected after.name=%s, got %v", testName, after["name"])
 	}
 
-	t.Log("E2E test passed: PostgreSQL -> Redis CDC pipeline working")
+	t.Log("E2E test passed: PostgreSQL -> Kafka CDC pipeline working")
 }
 
 // TestE2E_UpdateOperation tests UPDATE operation CDC
@@ -172,8 +208,8 @@ func TestE2E_UpdateOperation(t *testing.T) {
 	defer cancel()
 
 	dsn := getPostgresDSN()
-	redisAddr := getRedisAddr()
-	testKey := "e2e:cdc:events:update"
+	brokers := getKafkaBrokers()
+	usersTopic := "cdc.users"
 
 	cfg := config.Config{
 		Source: config.SourceConfig{
@@ -183,9 +219,8 @@ func TestE2E_UpdateOperation(t *testing.T) {
 			SlotName: "iris_e2e_update_slot",
 		},
 		Sink: config.SinkConfig{
-			Type: "redis",
-			Addr: redisAddr,
-			Key:  testKey,
+			Type:    "kafka",
+			Brokers: brokers,
 		},
 	}
 
@@ -224,29 +259,21 @@ func TestE2E_UpdateOperation(t *testing.T) {
 		t.Fatalf("failed to update user: %v", err)
 	}
 
-	redisClient := connectToRedis(t, redisAddr)
-	defer cleanupRedis(t, redisClient, testKey)
+	consumer := newKafkaConsumer(t, brokers, usersTopic)
 
-	// Wait for update event
+	// Wait for the update event matching this test's own email
 	var eventData map[string]any
-	if !eventuallyHelper(t, func() bool {
-		result, err := redisClient.LRange(ctx, testKey, 0, -1).Result()
-		if err != nil || len(result) == 0 {
+	if !pollKafkaUntil(t, consumer, 15*time.Second, func(ev map[string]any) bool {
+		if ev["op"] != "update" {
 			return false
 		}
-		// Find the update event (may need to skip create event)
-		for _, r := range result {
-			var ev map[string]any
-			if err := json.Unmarshal([]byte(r), &ev); err != nil {
-				continue
-			}
-			if ev["op"] == "update" {
-				eventData = ev
-				return true
-			}
+		after, ok := ev["after"].(map[string]any)
+		if !ok || after["email"] != testEmail {
+			return false
 		}
-		return false
-	}, 15*time.Second, 500*time.Millisecond, "timeout waiting for update event") {
+		eventData = ev
+		return true
+	}) {
 		t.Fatal("timeout waiting for update event")
 	}
 
@@ -280,8 +307,8 @@ func TestE2E_DeleteOperation(t *testing.T) {
 	defer cancel()
 
 	dsn := getPostgresDSN()
-	redisAddr := getRedisAddr()
-	testKey := "e2e:cdc:events:delete"
+	brokers := getKafkaBrokers()
+	productsTopic := "cdc.products"
 
 	cfg := config.Config{
 		Source: config.SourceConfig{
@@ -291,9 +318,8 @@ func TestE2E_DeleteOperation(t *testing.T) {
 			SlotName: "iris_e2e_delete_slot",
 		},
 		Sink: config.SinkConfig{
-			Type: "redis",
-			Addr: redisAddr,
-			Key:  testKey,
+			Type:    "kafka",
+			Brokers: brokers,
 		},
 	}
 
@@ -330,28 +356,21 @@ func TestE2E_DeleteOperation(t *testing.T) {
 		t.Fatalf("failed to delete product: %v", err)
 	}
 
-	redisClient := connectToRedis(t, redisAddr)
-	defer cleanupRedis(t, redisClient, testKey)
+	consumer := newKafkaConsumer(t, brokers, productsTopic)
 
-	// Wait for delete event
+	// Wait for the delete event matching this test's own product
 	var eventData map[string]any
-	if !eventuallyHelper(t, func() bool {
-		result, err := redisClient.LRange(ctx, testKey, 0, -1).Result()
-		if err != nil || len(result) == 0 {
+	if !pollKafkaUntil(t, consumer, 15*time.Second, func(ev map[string]any) bool {
+		if ev["op"] != "delete" {
 			return false
 		}
-		for _, r := range result {
-			var ev map[string]any
-			if err := json.Unmarshal([]byte(r), &ev); err != nil {
-				continue
-			}
-			if ev["op"] == "delete" {
-				eventData = ev
-				return true
-			}
+		before, ok := ev["before"].(map[string]any)
+		if !ok || before["name"] != testSku {
+			return false
 		}
-		return false
-	}, 15*time.Second, 500*time.Millisecond, "timeout waiting for delete event") {
+		eventData = ev
+		return true
+	}) {
 		t.Fatal("timeout waiting for delete event")
 	}
 
@@ -381,8 +400,9 @@ func TestE2E_MultipleTables(t *testing.T) {
 	defer cancel()
 
 	dsn := getPostgresDSN()
-	redisAddr := getRedisAddr()
-	testKey := "e2e:cdc:events:multi"
+	brokers := getKafkaBrokers()
+	usersTopic := "cdc.users"
+	productsTopic := "cdc.products"
 
 	cfg := config.Config{
 		Source: config.SourceConfig{
@@ -392,9 +412,8 @@ func TestE2E_MultipleTables(t *testing.T) {
 			SlotName: "iris_e2e_multi_slot",
 		},
 		Sink: config.SinkConfig{
-			Type: "redis",
-			Addr: redisAddr,
-			Key:  testKey,
+			Type:    "kafka",
+			Brokers: brokers,
 		},
 	}
 
@@ -415,251 +434,54 @@ func TestE2E_MultipleTables(t *testing.T) {
 	db := connectToPostgres(t, dsn)
 	defer db.Close()
 
-	// Insert into both tables
-	testID := time.Now().Unix()
+	// Insert into both tables, tagging each row with a shared test ID so we
+	// can distinguish these records from other tests sharing the same topics.
+	testID := time.Now().UnixNano()
+	userName := fmt.Sprintf("Multi User %d", testID)
+	productName := fmt.Sprintf("Multi Product %d", testID)
+
 	_, err = db.ExecContext(ctx,
 		"INSERT INTO users (name, email) VALUES ($1, $2)",
-		fmt.Sprintf("Multi User %d", testID),
-		fmt.Sprintf("multi%d@test.com", testID))
+		userName, fmt.Sprintf("multi%d@test.com", testID))
 	if err != nil {
 		t.Fatalf("failed to insert user: %v", err)
 	}
 
 	_, err = db.ExecContext(ctx,
 		"INSERT INTO products (name, price, inventory) VALUES ($1, $2, $3)",
-		fmt.Sprintf("Multi Product %d", testID),
-		49.99, 25)
+		productName, 49.99, 25)
 	if err != nil {
 		t.Fatalf("failed to insert product: %v", err)
 	}
 
-	redisClient := connectToRedis(t, redisAddr)
-	defer cleanupRedis(t, redisClient, testKey)
+	consumer := newKafkaConsumer(t, brokers, usersTopic, productsTopic)
 
-	// Wait for both events
+	// Wait for events from both tables carrying this test's marker
 	tablesSeen := make(map[string]bool)
-	if !eventuallyHelper(t, func() bool {
-		result, err := redisClient.LRange(ctx, testKey, 0, -1).Result()
-		if err != nil || len(result) == 0 {
-			return false
-		}
-		for _, r := range result {
-			var ev map[string]any
-			if err := json.Unmarshal([]byte(r), &ev); err != nil {
-				continue
-			}
-			if table, ok := ev["table"].(string); ok {
-				tablesSeen[table] = true
-			}
-		}
-		return tablesSeen["users"] && tablesSeen["products"]
-	}, 15*time.Second, 500*time.Millisecond, "timeout waiting for events from both tables") {
-		t.Fatal("timeout waiting for events from both tables")
-	}
-
-	t.Logf("E2E multi-table test passed: saw events from %v", tablesSeen)
-}
-
-// eventuallyHelper is a helper for Eventually assertions
-func eventuallyHelper(t *testing.T, condition func() bool, timeout, tick time.Duration, msg string) bool {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	ticker := time.NewTicker(tick)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			t.Logf("timeout: %s", msg)
-			return false
-		case <-ticker.C:
-			if condition() {
-				return true
-			}
-		}
-	}
-}
-
-// TestE2E_PostgresToRedisStream_Basic tests CDC pipeline with Redis Stream sink
-func TestE2E_PostgresToRedisStream_Basic(t *testing.T) {
-	skipIfNoE2E(t)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	dsn := getPostgresDSN()
-	redisAddr := getRedisAddr()
-	testStreamKey := "e2e:cdc:stream:basic"
-
-	// 1. Create pipeline config with redis_stream sink
-	cfg := config.Config{
-		Source: config.SourceConfig{
-			Type:     "postgres",
-			DSN:      dsn,
-			Tables:   []string{"users", "orders"},
-			SlotName: "iris_e2e_stream_slot",
-		},
-		Transform: nil, // No transform
-		Sink: config.SinkConfig{
-			Type: "redis_stream",
-			Addr: redisAddr,
-		},
-		Mapping: config.MappingConfig{
-			TableStreamMap: map[string]string{
-				"users":  testStreamKey,
-				"orders": testStreamKey,
-			},
-		},
-	}
-
-	// 2. Create pipeline
-	p, err := pipeline.NewPipeline(cfg, logger.New("plain", "info"), observability.NewNoopMetrics())
-	if err != nil {
-		t.Fatalf("failed to create pipeline: %v", err)
-	}
-	defer p.Close()
-
-	// 3. Start pipeline
-	go func() {
-		if err := p.Run(ctx); err != nil && err != context.Canceled {
-			t.Logf("pipeline error: %v", err)
-		}
-	}()
-
-	// Wait for replication to start
-	time.Sleep(2 * time.Second)
-
-	// 4. Insert test data
-	db := connectToPostgres(t, dsn)
-	defer db.Close()
-
-	testName := fmt.Sprintf("e2e_stream_test_%d", time.Now().Unix())
-	_, err = db.ExecContext(ctx,
-		"INSERT INTO users (name, email) VALUES ($1, $2)",
-		testName, "e2e-stream@test.com")
-	if err != nil {
-		t.Fatalf("failed to insert test data: %v", err)
-	}
-
-	// 5. Wait for event in Redis Stream
-	redisClient := connectToRedis(t, redisAddr)
-	defer cleanupRedis(t, redisClient, testStreamKey)
-
-	var eventData map[string]any
-	if !eventuallyHelper(t, func() bool {
-		result, err := redisClient.XRange(ctx, testStreamKey, "-", "+").Result()
-		if err != nil || len(result) == 0 {
-			return false
-		}
-		// Extract data field from stream entry
-		entry := result[0]
-		dataField, ok := entry.Values["data"]
+	if !pollKafkaUntil(t, consumer, 15*time.Second, func(ev map[string]any) bool {
+		table, ok := ev["table"].(string)
 		if !ok {
 			return false
 		}
-		if err := json.Unmarshal([]byte(dataField.(string)), &eventData); err != nil {
+		after, ok := ev["after"].(map[string]any)
+		if !ok {
 			return false
 		}
-		return true
-	}, 15*time.Second, 500*time.Millisecond, "timeout waiting for CDC stream event") {
-		t.Fatal("timeout waiting for CDC stream event")
-	}
-
-	// 6. Verify event content
-	if eventData["table"] != "users" {
-		t.Errorf("expected table=users, got %v", eventData["table"])
-	}
-	if eventData["op"] != "create" {
-		t.Errorf("expected op=create, got %v", eventData["op"])
-	}
-	after, ok := eventData["after"].(map[string]any)
-	if !ok {
-		t.Fatal("expected after to be a map")
-	}
-	if after["name"] != testName {
-		t.Errorf("expected after.name=%s, got %v", testName, after["name"])
-	}
-
-	t.Log("E2E Redis Stream test passed: PostgreSQL -> Redis Stream CDC pipeline working")
-}
-
-// TestE2E_RedisStream_MaxLen tests stream trimming with MaxLen
-func TestE2E_RedisStream_MaxLen(t *testing.T) {
-	skipIfNoE2E(t)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	dsn := getPostgresDSN()
-	redisAddr := getRedisAddr()
-	testStreamKey := "e2e:cdc:stream:maxlen"
-	maxLen := 3
-
-	cfg := config.Config{
-		Source: config.SourceConfig{
-			Type:     "postgres",
-			DSN:      dsn,
-			Tables:   []string{"users"},
-			SlotName: "iris_e2e_stream_maxlen_slot",
-		},
-		Sink: config.SinkConfig{
-			Type:   "redis_stream",
-			Addr:   redisAddr,
-			MaxLen: maxLen,
-		},
-		Mapping: config.MappingConfig{
-			TableStreamMap: map[string]string{
-				"users": testStreamKey,
-			},
-		},
-	}
-
-	p, err := pipeline.NewPipeline(cfg, logger.New("plain", "info"), observability.NewNoopMetrics())
-	if err != nil {
-		t.Fatalf("failed to create pipeline: %v", err)
-	}
-	defer p.Close()
-
-	go func() {
-		if err := p.Run(ctx); err != nil && err != context.Canceled {
-			t.Logf("pipeline error: %v", err)
+		name, _ := after["name"].(string)
+		switch table {
+		case "users":
+			if name == userName {
+				tablesSeen["users"] = true
+			}
+		case "products":
+			if name == productName {
+				tablesSeen["products"] = true
+			}
 		}
-	}()
-
-	time.Sleep(2 * time.Second)
-
-	db := connectToPostgres(t, dsn)
-	defer db.Close()
-
-	// Insert multiple records to trigger trimming
-	redisClient := connectToRedis(t, redisAddr)
-	defer cleanupRedis(t, redisClient, testStreamKey)
-
-	for i := 0; i < 5; i++ {
-		testEmail := fmt.Sprintf("maxlen_%d_%d@test.com", time.Now().Unix(), i)
-		_, err = db.ExecContext(ctx,
-			"INSERT INTO users (name, email) VALUES ($1, $2)",
-			fmt.Sprintf("User %d", i), testEmail)
-		if err != nil {
-			t.Fatalf("failed to insert user %d: %v", i, err)
-		}
-		time.Sleep(100 * time.Millisecond)
+		return tablesSeen["users"] && tablesSeen["products"]
+	}) {
+		t.Fatalf("timeout waiting for events from both tables, saw: %v", tablesSeen)
 	}
 
-	// Wait for all events and verify trimming
-	if !eventuallyHelper(t, func() bool {
-		result, err := redisClient.XRange(ctx, testStreamKey, "-", "+").Result()
-		if err != nil {
-			return false
-		}
-		// Stream should be trimmed to maxLen
-		return len(result) <= maxLen
-	}, 15*time.Second, 500*time.Millisecond, "timeout waiting for stream trim") {
-		t.Fatalf("stream not trimmed to maxLen=%d", maxLen)
-	}
-
-	result, _ := redisClient.XRange(ctx, testStreamKey, "-", "+").Result()
-	t.Logf("E2E MaxLen test passed: stream trimmed to %d entries (maxLen=%d)", len(result), maxLen)
+	t.Logf("E2E multi-table test passed: saw events from %v", tablesSeen)
 }

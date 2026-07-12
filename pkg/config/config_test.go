@@ -17,12 +17,9 @@ source:
     - orders
 
 sink:
-  type: redis
-  addr: localhost:6379
-  password: secret
-  db: 1
-  key: cdc:events
-  max_len: 1000
+  type: kafka
+  brokers:
+    - localhost:9092
 `
 
 	tmpFile := createTempFile(t, content)
@@ -45,17 +42,11 @@ sink:
 	if len(cfg.Source.Tables) != 2 {
 		t.Errorf("Source.Tables count = %d, want 2", len(cfg.Source.Tables))
 	}
-	if cfg.Sink.Type != "redis" {
-		t.Errorf("Sink.Type = %q, want %q", cfg.Sink.Type, "redis")
+	if cfg.Sink.Type != "kafka" {
+		t.Errorf("Sink.Type = %q, want %q", cfg.Sink.Type, "kafka")
 	}
-	if cfg.Sink.Addr != "localhost:6379" {
-		t.Errorf("Sink.Addr = %q, want %q", cfg.Sink.Addr, "localhost:6379")
-	}
-	if cfg.Sink.Key != "cdc:events" {
-		t.Errorf("Sink.Key = %q, want %q", cfg.Sink.Key, "cdc:events")
-	}
-	if cfg.Sink.MaxLen != 1000 {
-		t.Errorf("Sink.MaxLen = %d, want 1000", cfg.Sink.MaxLen)
+	if len(cfg.Sink.Brokers) != 1 || cfg.Sink.Brokers[0] != "localhost:9092" {
+		t.Errorf("Sink.Brokers = %v, want [localhost:9092]", cfg.Sink.Brokers)
 	}
 }
 
@@ -140,9 +131,9 @@ transform:
   enable_logging: true
 
 sink:
-  type: redis
-  addr: localhost:6379
-  key: cdc:events
+  type: kafka
+  brokers:
+    - localhost:9092
 `
 
 	tmpFile := createTempFile(t, content)
@@ -228,9 +219,8 @@ func TestValidate_MissingDSN(t *testing.T) {
 			SlotName: "test_slot",
 		},
 		Sink: SinkConfig{
-			Type: "redis",
-			Addr: "localhost:6379",
-			Key:  "cdc:events",
+			Type:    "kafka",
+			Brokers: []string{"localhost:9092"},
 		},
 	}
 
@@ -251,9 +241,8 @@ func TestValidate_MissingSlotName(t *testing.T) {
 			DSN:  "postgres://localhost:5432/testdb",
 		},
 		Sink: SinkConfig{
-			Type: "redis",
-			Addr: "localhost:6379",
-			Key:  "cdc:events",
+			Type:    "kafka",
+			Brokers: []string{"localhost:9092"},
 		},
 	}
 
@@ -267,7 +256,7 @@ func TestValidate_MissingSlotName(t *testing.T) {
 	}
 }
 
-func TestValidate_MissingSinkAddress(t *testing.T) {
+func TestValidate_MissingSinkBrokers(t *testing.T) {
 	cfg := &Config{
 		Source: SourceConfig{
 			Type:     "postgres",
@@ -275,22 +264,21 @@ func TestValidate_MissingSinkAddress(t *testing.T) {
 			SlotName: "test_slot",
 		},
 		Sink: SinkConfig{
-			Type: "redis",
-			Key:  "cdc:events",
+			Type: "kafka",
 		},
 	}
 
 	err := cfg.Validate()
 	if err == nil {
-		t.Fatal("Validate() expected error for missing sink address, got nil")
+		t.Fatal("Validate() expected error for missing sink brokers, got nil")
 	}
 
-	if err.Error() != "sink.addr is required for redis sink" {
-		t.Errorf("Validate() error = %v, want 'sink.addr is required for redis sink'", err)
+	if err.Error() != "sink.brokers is required for kafka sink" {
+		t.Errorf("Validate() error = %v, want 'sink.brokers is required for kafka sink'", err)
 	}
 }
 
-func TestValidate_MissingSinkKey(t *testing.T) {
+func TestValidate_MissingSinkPath(t *testing.T) {
 	cfg := &Config{
 		Source: SourceConfig{
 			Type:     "postgres",
@@ -298,18 +286,17 @@ func TestValidate_MissingSinkKey(t *testing.T) {
 			SlotName: "test_slot",
 		},
 		Sink: SinkConfig{
-			Type: "redis",
-			Addr: "localhost:6379",
+			Type: "file",
 		},
 	}
 
 	err := cfg.Validate()
 	if err == nil {
-		t.Fatal("Validate() expected error for missing sink key, got nil")
+		t.Fatal("Validate() expected error for missing sink path, got nil")
 	}
 
-	if err.Error() != "sink.key is required for redis list sink" {
-		t.Errorf("Validate() error = %v, want 'sink.key is required for redis list sink'", err)
+	if err.Error() != "sink.path is required for file sink" {
+		t.Errorf("Validate() error = %v, want 'sink.path is required for file sink'", err)
 	}
 }
 
@@ -321,9 +308,8 @@ func TestValidate_UnsupportedSourceType(t *testing.T) {
 			SlotName: "test_slot",
 		},
 		Sink: SinkConfig{
-			Type: "redis",
-			Addr: "localhost:6379",
-			Key:  "cdc:events",
+			Type:    "kafka",
+			Brokers: []string{"localhost:9092"},
 		},
 	}
 
@@ -346,7 +332,6 @@ func TestValidate_UnsupportedSinkType(t *testing.T) {
 		},
 		Sink: SinkConfig{
 			Type: "rabbitmq",
-			Addr: "localhost:5672",
 		},
 	}
 
@@ -408,9 +393,8 @@ func TestValidate_TransformOptional(t *testing.T) {
 			SlotName: "test_slot",
 		},
 		Sink: SinkConfig{
-			Type: "redis",
-			Addr: "localhost:6379",
-			Key:  "cdc:events",
+			Type:    "kafka",
+			Brokers: []string{"localhost:9092"},
 		},
 		// Transform is nil (optional)
 	}
@@ -434,9 +418,8 @@ func TestValidate_TransformEnabled_MissingPath(t *testing.T) {
 			// Path is missing
 		},
 		Sink: SinkConfig{
-			Type: "redis",
-			Addr: "localhost:6379",
-			Key:  "cdc:events",
+			Type:    "kafka",
+			Brokers: []string{"localhost:9092"},
 		},
 	}
 
@@ -463,9 +446,8 @@ func TestValidate_TransformEnabled_UnsupportedType(t *testing.T) {
 			Path:    "/path/to/script.lua",
 		},
 		Sink: SinkConfig{
-			Type: "redis",
-			Addr: "localhost:6379",
-			Key:  "cdc:events",
+			Type:    "kafka",
+			Brokers: []string{"localhost:9092"},
 		},
 	}
 
@@ -492,9 +474,8 @@ func TestValidate_TransformDisabled_PathNotRequired(t *testing.T) {
 			// Path not required when disabled
 		},
 		Sink: SinkConfig{
-			Type: "redis",
-			Addr: "localhost:6379",
-			Key:  "cdc:events",
+			Type:    "kafka",
+			Brokers: []string{"localhost:9092"},
 		},
 	}
 
@@ -513,12 +494,8 @@ func TestValidate_ValidConfig(t *testing.T) {
 			Tables:   []string{"users", "orders"},
 		},
 		Sink: SinkConfig{
-			Type:     "redis",
-			Addr:     "localhost:6379",
-			Password: "secret",
-			DB:       1,
-			Key:      "cdc:events",
-			MaxLen:   1000,
+			Type:    "kafka",
+			Brokers: []string{"localhost:9092"},
 		},
 	}
 
@@ -528,7 +505,7 @@ func TestValidate_ValidConfig(t *testing.T) {
 	}
 }
 
-func TestValidate_RedisStream_ValidConfig(t *testing.T) {
+func TestValidate_File_ValidConfig(t *testing.T) {
 	cfg := &Config{
 		Source: SourceConfig{
 			Type:     "postgres",
@@ -536,19 +513,18 @@ func TestValidate_RedisStream_ValidConfig(t *testing.T) {
 			SlotName: "test_slot",
 		},
 		Sink: SinkConfig{
-			Type: "redis_stream",
-			Addr: "localhost:6379",
-			// Key is NOT required for redis_stream
+			Type: "file",
+			Path: "/var/log/cdc/events.log",
 		},
 	}
 
 	err := cfg.Validate()
 	if err != nil {
-		t.Errorf("Validate() error = %v, want nil for valid redis_stream config", err)
+		t.Errorf("Validate() error = %v, want nil for valid file config", err)
 	}
 }
 
-func TestValidate_RedisStream_MissingAddr(t *testing.T) {
+func TestValidate_File_MissingPath(t *testing.T) {
 	cfg := &Config{
 		Source: SourceConfig{
 			Type:     "postgres",
@@ -556,17 +532,35 @@ func TestValidate_RedisStream_MissingAddr(t *testing.T) {
 			SlotName: "test_slot",
 		},
 		Sink: SinkConfig{
-			Type: "redis_stream",
-			Addr: "",
+			Type: "file",
+			Path: "",
 		},
 	}
 
 	err := cfg.Validate()
 	if err == nil {
-		t.Fatal("Validate() expected error for missing addr, got nil")
+		t.Fatal("Validate() expected error for missing path, got nil")
 	}
-	if err.Error() != "sink.addr is required for redis_stream sink" {
-		t.Errorf("Validate() error = %v, want 'sink.addr is required for redis_stream sink'", err)
+	if err.Error() != "sink.path is required for file sink" {
+		t.Errorf("Validate() error = %v, want 'sink.path is required for file sink'", err)
+	}
+}
+
+func TestValidate_Stdout_ValidConfig(t *testing.T) {
+	cfg := &Config{
+		Source: SourceConfig{
+			Type:     "postgres",
+			DSN:      "postgres://localhost:5432/testdb",
+			SlotName: "test_slot",
+		},
+		Sink: SinkConfig{
+			Type: "stdout",
+		},
+	}
+
+	err := cfg.Validate()
+	if err != nil {
+		t.Errorf("Validate() error = %v, want nil for valid stdout config (no required fields)", err)
 	}
 }
 
@@ -578,9 +572,9 @@ source:
   slot_name: iris_slot
 
 sink:
-  type: redis
-  addr: localhost:6379
-  key: iris:cdc
+  type: kafka
+  brokers:
+    - localhost:9092
 `
 
 	tmpFile := createTempFile(t, content)
@@ -604,8 +598,9 @@ source:
   dsn: mysql://localhost:3306/testdb
 
 sink:
-  type: redis
-  addr: localhost:6379
+  type: kafka
+  brokers:
+    - localhost:9092
 `
 
 	tmpFile := createTempFile(t, content)
@@ -629,16 +624,14 @@ func TestValidate_DLQ_Valid(t *testing.T) {
 			SlotName: "test_slot",
 		},
 		Sink: SinkConfig{
-			Type: "redis",
-			Addr: "localhost:6379",
-			Key:  "cdc:events",
+			Type:    "kafka",
+			Brokers: []string{"localhost:9092"},
 		},
 		DLQ: &DLQConfig{
 			Enabled: true,
 			Sink: SinkConfig{
-				Type: "redis",
-				Addr: "localhost:6379",
-				Key:  "cdc:dlq",
+				Type: "file",
+				Path: "/var/log/cdc/dlq.log",
 			},
 		},
 	}
@@ -657,9 +650,8 @@ func TestValidate_DLQ_MissingSinkType(t *testing.T) {
 			SlotName: "test_slot",
 		},
 		Sink: SinkConfig{
-			Type: "redis",
-			Addr: "localhost:6379",
-			Key:  "cdc:events",
+			Type:    "kafka",
+			Brokers: []string{"localhost:9092"},
 		},
 		DLQ: &DLQConfig{
 			Enabled: true,
@@ -684,9 +676,8 @@ func TestValidate_DLQ_Disabled_NoValidation(t *testing.T) {
 			SlotName: "test_slot",
 		},
 		Sink: SinkConfig{
-			Type: "redis",
-			Addr: "localhost:6379",
-			Key:  "cdc:events",
+			Type:    "kafka",
+			Brokers: []string{"localhost:9092"},
 		},
 		DLQ: &DLQConfig{
 			Enabled: false,
@@ -708,9 +699,8 @@ func TestValidate_NoDLQ_BackwardCompat(t *testing.T) {
 			SlotName: "test_slot",
 		},
 		Sink: SinkConfig{
-			Type: "redis",
-			Addr: "localhost:6379",
-			Key:  "cdc:events",
+			Type:    "kafka",
+			Brokers: []string{"localhost:9092"},
 		},
 		// DLQ is nil — backward compatible
 	}
@@ -728,9 +718,9 @@ source:
   dsn: postgres://localhost:5432/testdb
   slot_name: test_slot
 sink:
-  type: redis
-  addr: localhost:6379
-  key: cdc:events
+  type: kafka
+  brokers:
+    - localhost:9092
 `
 	tmpFile := createTempFile(t, content)
 	defer os.Remove(tmpFile)
@@ -755,16 +745,14 @@ source:
   dsn: postgres://localhost:5432/testdb
   slot_name: test_slot
 sink:
-  type: redis
-  addr: localhost:6379
-  key: cdc:events
+  type: kafka
+  brokers:
+    - localhost:9092
 dlq:
   enabled: true
   sink:
-    type: redis
-    addr: localhost:6379
-    key: cdc:dlq
-    max_len: 5000
+    type: file
+    path: /var/log/cdc/dlq.log
 retry:
   max_attempts: 5
   backoff_ms: 200
@@ -783,14 +771,11 @@ retry:
 	if !cfg.DLQ.Enabled {
 		t.Error("DLQ.Enabled should be true")
 	}
-	if cfg.DLQ.Sink.Type != "redis" {
-		t.Errorf("DLQ.Sink.Type = %q, want %q", cfg.DLQ.Sink.Type, "redis")
+	if cfg.DLQ.Sink.Type != "file" {
+		t.Errorf("DLQ.Sink.Type = %q, want %q", cfg.DLQ.Sink.Type, "file")
 	}
-	if cfg.DLQ.Sink.Key != "cdc:dlq" {
-		t.Errorf("DLQ.Sink.Key = %q, want %q", cfg.DLQ.Sink.Key, "cdc:dlq")
-	}
-	if cfg.DLQ.Sink.MaxLen != 5000 {
-		t.Errorf("DLQ.Sink.MaxLen = %d, want 5000", cfg.DLQ.Sink.MaxLen)
+	if cfg.DLQ.Sink.Path != "/var/log/cdc/dlq.log" {
+		t.Errorf("DLQ.Sink.Path = %q, want %q", cfg.DLQ.Sink.Path, "/var/log/cdc/dlq.log")
 	}
 	if cfg.Retry.MaxAttempts != 5 {
 		t.Errorf("Retry.MaxAttempts = %d, want 5", cfg.Retry.MaxAttempts)
